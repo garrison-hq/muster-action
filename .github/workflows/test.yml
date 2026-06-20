@@ -1,0 +1,60 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  static-pass:
+    name: check a valid Soul.md (expect pass)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - id: muster
+        uses: ./
+        with:
+          command: check
+          args: tests/fixtures/Soul.md
+      - name: assert passed
+        run: |
+          echo "result=${{ steps.muster.outputs.result }} exit=${{ steps.muster.outputs.exit-code }}"
+          test "${{ steps.muster.outputs.result }}" = "passed"
+          test "${{ steps.muster.outputs.exit-code }}" = "0"
+
+  static-fail:
+    name: check a broken Soul.md (expect failure, reported not thrown)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - id: muster
+        uses: ./
+        with:
+          command: check
+          args: tests/fixtures/Soul.broken.md
+          fail-on: never # report via outputs; do not fail the step
+      - name: assert failed with exit 1
+        run: |
+          echo "result=${{ steps.muster.outputs.result }} exit=${{ steps.muster.outputs.exit-code }}"
+          test "${{ steps.muster.outputs.result }}" = "failed"
+          test "${{ steps.muster.outputs.exit-code }}" = "1"
+
+  a2a-skip:
+    name: a2a behavioral with no endpoint (expect skip, exit 0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - id: muster
+        uses: ./
+        with:
+          command: a2a run
+          args: tests/fixtures/a2a-behavioral.yaml
+          # no endpoint → muster skips live cases
+      - name: assert skipped, exit 0
+        run: |
+          echo "result=${{ steps.muster.outputs.result }} exit=${{ steps.muster.outputs.exit-code }}"
+          test "${{ steps.muster.outputs.exit-code }}" = "0"
+          test "${{ steps.muster.outputs.result }}" = "skipped"
