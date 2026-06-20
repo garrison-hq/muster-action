@@ -1,0 +1,51 @@
+# Example consumer workflow. Copy into a downstream repo's .github/workflows/.
+# Static checks run on every PR (cheap, offline). The multi-turn A2A behavioral
+# check runs only on main, against an agent the workflow boots itself.
+
+name: agent-conformance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    name: static conformance (every PR)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: garrison-hq/muster-action@v1
+        with:
+          command: check
+          args: souls/my-agent/Soul.md
+      - uses: garrison-hq/muster-action@v1
+        with:
+          command: skills run
+          args: conformance/skills.yaml
+
+  behavioral:
+    name: A2A behavioral (main only)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # Boot the assembled agent over A2A. This is your step; the model key is a
+      # repo secret. On a fork PR with no secrets, guard the whole job instead.
+      - name: Start the agent
+        run: ./scripts/start-agent.sh &
+        env:
+          MODEL_API_KEY: ${{ secrets.MODEL_API_KEY }}
+
+      - uses: garrison-hq/muster-action@v1
+        with:
+          command: a2a run
+          args: conformance/behavioral.yaml
+          endpoint: http://localhost:8080
+          token: ${{ secrets.MUSTER_A2A_TOKEN }}
+          health-url: http://localhost:8080/.well-known/agent-card.json
+          health-timeout: '90'
