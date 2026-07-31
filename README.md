@@ -158,6 +158,21 @@ worked example against a local stub endpoint is in
 internally, so wrapping it in this conjunction a second time asserts the wrong polarity. The
 existing A2A example (`behavioral:` job above) needs no equivalent wrapper.
 
+**Known boundary risk, recorded deliberately (not fixed in this version):** the marker text this
+conjunction greps for (`  [PASS] <id>` / `  [FAIL] <id>`) is muster's **human-readable** report
+line, not its stable `--json` contract. muster's own test suite only asserts `stdout.toContain(...)`
+against that line (a substring check, not byte-exact), so a future change to the exact indent or
+wording would leave muster's own suite green while breaking this exact grep for every consumer,
+with no upstream signal. This fails closed (a broken marker match makes the assertion step
+error/fail, not silently pass), so it is a robustness gap, not a correctness one. A `--json`-derived
+marker (muster's `SkillsRunResult.results[].id`/`.passed`/`.isControl` fields, which `--json`
+serializes verbatim) would be more robust, but `scripts/run.sh` deliberately runs muster **without**
+`--json` so the Actions log stays human-readable and the failure annotation has real content —
+switching the conjunction mechanism to `--json` parsing is a `scripts/run.sh`/`action.yml` design
+change (WP02's owned surface, already reviewed and shipped as report-file + human-text anchored
+grep), not something this example can silently redirect to on its own. Left as an explicit,
+documented follow-up rather than resolved here.
+
 ### Fork-PR behavior
 
 `secrets.MODEL_API_KEY` (or any secret reference) resolves to `''` — not an error, not a
