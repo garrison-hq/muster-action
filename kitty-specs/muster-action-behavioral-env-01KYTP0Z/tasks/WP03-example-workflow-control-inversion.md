@@ -218,6 +218,58 @@ This is **IC-03** in `plan.md` — has a **hard dependency on WP02**: the conjun
 - Confirm the conjunction assertion's fixture is unambiguously a skills manifest, and that the existing `a2a-skip` job is byte-for-byte unchanged.
 - Confirm the `version: '1.2.0'` pin's comment cites `plan.md` "Spec Corrections Found During Planning #2a" and the M5 commit it corresponds to.
 
+## Post-Review Correction (F-2): three vacuous commit-message verification commands
+
+Review round 2 found that three of this WP's implementation commits recorded a verification
+command using a bare `|` inside a POSIX basic regular expression (BRE). GNU `grep`'s BRE
+alternation operator is `\|`, not a bare `|` — without the backslash, `|` is a **literal pipe
+character**. Each recorded command therefore matched nothing and returned a "0 matches"/exit-`1`
+result that was recorded as if it had verified the claimed fact. Commit messages are immutable, so
+this note is the correction. Each corrected form below was run against a genuine rejection case
+(a fixture engineered to contain the thing being checked for, or a scratch file containing none of
+the target strings) to confirm it actually discriminates, not just that it finds the existing
+target:
+
+1. **`f5f527c`** recorded `... | command grep -c 'model-endpoint|api-key'` (bare pipe) → `0`,
+   read as "the `static:` job has no BYOM references." Reproduced: this exact form returns `0`
+   even against a `static:` job block deliberately poisoned with a `model-endpoint:` line — a
+   false negative; the bare pipe is inert in BRE, so the pattern can never match regardless of
+   input. Corrected form (`-E`, real alternation):
+   ```bash
+   command awk '/^  static:/{p=1} /^  [a-z][a-z0-9_-]*:/ && !/^  static:/{p=0} p' examples/conformance.yml \
+     | command grep -Ec 'model-endpoint|api-key'
+   ```
+   Against the poisoned fixture: `1` (correctly detects it). Against the real, unpoisoned file:
+   `0` (correctly clears NFR-001).
+
+2. **`989780c`** recorded `command grep -n 'runsErrored|GITHUB_STEP_SUMMARY' README.md examples/*.yml`,
+   read as "finds the pattern." Reproduced: exit `1`, no output — a false negative, since `README.md`
+   does document both strings. Corrected form:
+   ```bash
+   command grep -nE 'runsErrored|GITHUB_STEP_SUMMARY' README.md examples/*.yml
+   ```
+   Real output: exit `0`, lists the `README.md` lines carrying `runsErrored` (the evidence-artefact
+   schema field, its prose rule, and the FR-006/F-1 cross-reference sentence added in the B-1/F-1
+   remediation) and `GITHUB_STEP_SUMMARY`. Rejection case: run against a scratch file containing
+   neither string — exit `1`, no output, as expected.
+
+3. **`db57249`** recorded `command grep -n '\*\*D1 —|\*\*D5 —|## Out of scope' docs/spec.md`,
+   read as "all three anchors present." Reproduced: exit `1`, no output — a false negative.
+   Corrected form:
+   ```bash
+   command grep -nE '\*\*D1 —|\*\*D5 —|## Out of scope' docs/spec.md
+   ```
+   Real output: exit `0`, lists all three anchors (`docs/spec.md`'s D1 line, D5 line, and the
+   "## Out of scope" heading). Rejection case: run against a scratch file with none of the three
+   anchors — exit `1`, no output, as expected.
+
+Every underlying fact these three commands were checking still held (NFR-001's `static:` job was
+genuinely untouched, `README.md` genuinely documents `runsErrored`/`GITHUB_STEP_SUMMARY`,
+`docs/spec.md` genuinely carries all three anchors) — only the recorded proof commands were
+vacuous. This is the ninth vacuous verification command recorded across this mission; see
+`f5f527c`'s own T014 RED-check disclosure (six-space indent never matched, corrected to
+eight-space before commit) for a prior case in this same WP that was caught and fixed pre-commit.
+
 ## Implementation Command
 
 Depends on WP02:
