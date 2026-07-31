@@ -81,20 +81,40 @@ jobs:
 
       # Demonstration-only: boot the local stub this example's own fixture is
       # graded against. A real consumer's model-endpoint is already running
-      # and does not need this step.
+      # and does not need this step. Backgrounding a command always exits 0
+      # regardless of whether the backgrounded process itself booted, so the
+      # PID is captured here to let the readiness step below give a specific
+      # diagnostic if the stub crashed on startup (e.g. the fixture is
+      # missing) instead of only reporting a generic timeout.
       - name: Start stub model endpoint
         if: ${{ secrets.MODEL_API_KEY != '' }}
-        run: node tests/fixtures/stub-endpoint.js &
+        run: |
+          node tests/fixtures/stub-endpoint.js &
+          echo $! > stub.pid
 
       # F-5 (review follow-up): wait for the stub's own readiness line rather
       # than racing it -- backgrounding with no gate is flaky by construction.
+      # B-2 (review follow-up): the loop below used to exit 0 unconditionally
+      # once the retries were exhausted, so a stub that never came up (a
+      # missing fixture, a crash, a port clash) was silently misattributed to
+      # the conformance check that runs afterward instead of to this readiness
+      # gate. Fail loudly here instead.
       - name: Wait for stub readiness
         if: ${{ secrets.MODEL_API_KEY != '' }}
         run: |
+          ready=""
           for _ in $(seq 1 30); do
-            curl -sf http://127.0.0.1:18337/chat/completions -X POST -d '{}' >/dev/null 2>&1 && break
+            curl -sf http://127.0.0.1:18337/chat/completions -X POST -d '{}' >/dev/null 2>&1 && { ready=1; break; }
             sleep 1
           done
+          if [ -z "$ready" ]; then
+            if [ -f stub.pid ] && ! kill -0 "$(cat stub.pid)" 2>/dev/null; then
+              echo "stub never became ready: the stub process (pid $(cat stub.pid)) is no longer running -- check the 'Start stub model endpoint' step's log for a crash" >&2
+            else
+              echo "stub never became ready: no 200 from http://127.0.0.1:18337/chat/completions after 30s" >&2
+            fi
+            exit 1
+          fi
 
       - name: Run muster (skills, control-inversion fixture)
         id: muster

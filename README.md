@@ -166,12 +166,19 @@ wording would leave muster's own suite green while breaking this exact grep for 
 with no upstream signal. This fails closed (a broken marker match makes the assertion step
 error/fail, not silently pass), so it is a robustness gap, not a correctness one. A `--json`-derived
 marker (muster's `SkillsRunResult.results[].id`/`.passed`/`.isControl` fields, which `--json`
-serializes verbatim) would be more robust, but `scripts/run.sh` deliberately runs muster **without**
-`--json` so the Actions log stays human-readable and the failure annotation has real content —
-switching the conjunction mechanism to `--json` parsing is a `scripts/run.sh`/`action.yml` design
-change (WP02's owned surface, already reviewed and shipped as report-file + human-text anchored
-grep), not something this example can silently redirect to on its own. Left as an explicit,
-documented follow-up rather than resolved here.
+serializes verbatim, and the same source that carries the evidence-artefact fields below) would be
+more robust, and it is reachable **today, with zero changes to `scripts/run.sh` or `action.yml`**:
+append `--json` to this job's own `args:` input (e.g.
+`args: tests/fixtures/skills-control-anchor.yaml --json`) — `scripts/run.sh`'s `${MA_ARGS}`
+word-splitting passes it straight through to `npx` unchanged. This example deliberately keeps the
+human-readable form instead, and the reason is a tradeoff this example makes, not an ownership
+constraint: switching would turn this job's Actions log and failure annotation from readable text
+into raw JSON, which is worse for a maintainer scanning CI output; and `scripts/run.sh` captures
+stdout and stderr into the same file for both forms alike, so a stray stderr line (an `npx`/Node
+warning, for instance) would land inside the same stream a `--json` consumer must feed to `jq`,
+silently breaking the parse — a risk the human-readable grep form does not carry, since a stray
+line there just becomes one more line of readable report. Left as an explicit, documented
+follow-up rather than resolved here.
 
 ### Fork-PR behavior
 
@@ -213,6 +220,11 @@ reviewer re-measured `4/24`, entirely from an unverified prose claim). A minimal
   `result`.
 - Writing and committing this artefact is the **consuming workflow's** responsibility; this action
   ships the template only.
+- `runsErrored` and per-axis `passRate` only exist in muster's `--json` output
+  (`queryBreakdown[].runsErrored`, `shouldTriggerAxis.triggerRate`) — the default human-readable
+  report has neither. Add `--json` to this job's `args:` input to obtain them (see the known
+  boundary risk above for exactly how that's wired and why the conjunction example above does not
+  use it by default).
 
 ## Versioning
 
