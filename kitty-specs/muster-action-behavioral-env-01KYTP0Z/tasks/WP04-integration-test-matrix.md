@@ -18,6 +18,7 @@ subtasks:
 - T025
 - T026
 - T027
+- T028
 history:
 - timestamp: '2026-07-31T00:00:00Z'
   agent: planner-priti
@@ -178,6 +179,21 @@ This is **IC-04** in `plan.md` — depends on **WP01** (the env-wiring these cas
 
 **Validation**: RED commit reproduces T021's failures standalone; GREEN commit passes standalone; case (b)'s negative-path evidence is a real, committed CI artifact.
 
+## Subtask T028: [Gap closure] Wire WP02's exact conjunction recipe into `.github/workflows/test.yml` as a real, CI-executed regression test
+
+**Purpose**: Close a gap identified during WP02/WP03 review, folded into this WP because only this WP owns `.github/workflows/test.yml` (this repo's own executed CI, as opposed to `examples/conformance.yml`, which WP03 owns but which is a documentation example — "Copy into a downstream repo's .github/workflows/" — never itself run by this repo's CI). Without this subtask, the mission's central mechanism (report-file + anchored-marker conjunction, FR-004/User Story 3) ships with **no regression test that actually executes in this repository**: WP02's T007/T010/T011/T012/T013 and WP03's T014/T020 are all self-contained recipes recorded as commit-message evidence (this repo has no test framework — `package.json` does not exist here), reproducible by hand but not re-run automatically by anything. A future change to `scripts/run.sh`, `action.yml`'s `report-file` output wiring, or muster's own report-line format could silently break the conjunction mechanism with no CI signal.
+
+**Steps**:
+1. Add a job to `.github/workflows/test.yml` (e.g. `skills-conjunction-regression`) that runs WP02's exact fixture (`tests/fixtures/skills-control-anchor.yaml` + `tests/fixtures/skills-anchor/` + `tests/fixtures/stub-endpoint.js` — reuse, do not re-derive, per WP02's own single-object-control guarantee) against the composite action itself (`uses: ./`), with `version: '1.2.0'` pinned (same reason as T021 step 2 — the default range must not be relied on for reproducibility) and `fail-on: never` (the control case fires and fails by design).
+2. Boot the stub with an explicit readiness wait before the muster step (do not repeat the F-5 backgrounding-with-no-gate hazard WP03's review flagged — this job runs in this repo's own real CI, where a race is more likely to bite, not less).
+3. Assert the conjunction exactly as WP02/WP03 documented it: `command grep -qxF '  [PASS] case-1' "$report_file" && command grep -qxF '  [FAIL] case-1-control' "$report_file"` where `$report_file` is `steps.<muster-step-id>.outputs.report-file`.
+4. Add the dead-endpoint falsification counterpart in the same job or an adjacent one: point `model-endpoint` at a dead local port, confirm the conjunction check **fails** (`case-1`'s own marker flips to `[FAIL]`) — this is what makes T023's separate `byom-dead-endpoint` case (aggregate `result`/`exit-code` only) and this subtask's per-case conjunction check jointly non-redundant: T023 proves the aggregate output correctly reports `failed`/`1` for a dead endpoint; this subtask proves the *finer-grained* per-case conjunction mechanism itself is regression-tested, which T023 does not exercise at all.
+5. This job must actually run in this repo's CI (not merely be present in the YAML) — capture the actual CI run as committed evidence, the same evidentiary bar as T027/T020.
+
+**Files**: `.github/workflows/test.yml` (new job), `tests/fixtures/**` (reuse WP02's fixture — no new fixture files expected).
+
+**Validation**: A real, observed CI run of this job passing (healthy-endpoint conjunction) and a real, observed CI run (or run-within-a-job) of the same conjunction check failing against a dead-endpoint substitute — not a recipe reproduced only by hand, and not merely restated in a PR description.
+
 ## Definition of Done
 
 - [ ] Cases (a)/(b)/(c) run with `version: '1.2.0'` pinned (not the default `^1.1.0`, even though the default range also happens to resolve to `1.2.0` today — an explicit pin is required for reproducibility); case (d) correctly does not need the pin.
@@ -188,6 +204,7 @@ This is **IC-04** in `plan.md` — depends on **WP01** (the env-wiring these cas
 - [ ] Case (d): malformed-YAML fixture, endpoint set → `errored`/`2`, with `fail-on: never`.
 - [ ] Cross-check confirms no case collapses to `passed`/`0` and only (d) yields exit `2`.
 - [ ] RED/GREEN commit SHAs recorded; case (b)'s CI run captured as committed evidence.
+- [ ] **T028 (gap closure, folded in from WP02/WP03 review)**: WP02's exact report-file + anchored-marker conjunction recipe is wired into `.github/workflows/test.yml` as a real job this repo's own CI executes — not only a hand-reproducible recipe recorded in a commit message. Both the healthy-endpoint pass and the dead-endpoint falsification are observed in a real CI run and captured as committed evidence.
 
 ## Risks
 
