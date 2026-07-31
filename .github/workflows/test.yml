@@ -107,6 +107,30 @@ jobs:
           echo "result=${{ steps.muster.outputs.result }} exit=${{ steps.muster.outputs.exit-code }}"
           test "${{ steps.muster.outputs.result }}" = "failed"
           test "${{ steps.muster.outputs.exit-code }}" = "1"
+      - name: assert the failure is genuinely network-caused, not a fixture defect
+        # `runBehavioralSkillCase` reads skillDir/querySetPath BEFORE any network
+        # call: a broken fixture (e.g. a bad skillDir) reports the exact same
+        # failed/1, "[FAIL] case-1" shape as a genuine dead-endpoint failure --
+        # verified locally, both produce identical plain-text output. Node/npm
+        # are already on PATH here: the composite action's own setup-node step
+        # (above) persisted its PATH change for the rest of this job.
+        run: |
+          json_out="$(MUSTER_ENDPOINT=http://127.0.0.1:9 npx -y @garrison-hq/muster@1.2.0 skills run tests/fixtures/behavioral-single-case.yaml --json || true)"
+          echo "$json_out" > /tmp/byom-dead-endpoint-diagnostic.json
+          # A fixture defect is caught before any network attempt and reports
+          # `errored: true` (verified locally against a deliberately-broken
+          # skillDir) -- reject that shape so this check cannot pass for the
+          # wrong reason.
+          if jq -e '.results[0].errored == true' /tmp/byom-dead-endpoint-diagnostic.json >/dev/null; then
+            echo "::error::case-1 errored before any network attempt (fixture defect), not a dead-endpoint failure"
+            exit 1
+          fi
+          errored_runs="$(jq '[.results[0].shouldTriggerAxis.queryBreakdown[]?.runsErrored] | add // 0' /tmp/byom-dead-endpoint-diagnostic.json)"
+          if [ "$errored_runs" -lt 1 ]; then
+            echo "::error::expected at least one run to error against the dead endpoint, got ${errored_runs}"
+            exit 1
+          fi
+          echo "confirmed: failure is network-caused (errored_runs=${errored_runs})"
 
   byom-missing-key:
     name: 'FR-005(c): missing key, endpoint set (expect failed, exit 1)'
