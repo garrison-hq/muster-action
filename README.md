@@ -110,6 +110,95 @@ is in [`examples/conformance.yml`](examples/conformance.yml).
 A good split: run the cheap static checks on every PR, and the live behavioral suite on `main` or
 on a schedule, since each behavioral run calls a model.
 
+## Proving a discrimination control still fires (skills only)
+
+A skills manifest can mark a case `isControl: true`: a case engineered so a genuinely working
+grader makes it fail, proving the grader can still fail at all. Because muster's aggregate
+`result`/`exit-code` outputs only report the manifest's overall pass/fail, they cannot by
+themselves distinguish three situations that all read `failed`/exit `1`: a genuine conformance
+problem, a dead/broken model endpoint, and everything working correctly with the control firing
+exactly as designed. Asserting `result == 'failed'` alone is vacuous — a dead endpoint satisfies it
+too.
+
+The fix is a **conjunction**, read from the `report-file` output's anchored, per-case markers: the
+ordinary case's marker is `[PASS]` **and** the control case's marker is `[FAIL]`. A dead endpoint
+breaks this conjunction — the ordinary case fails too — which is exactly what makes the check
+non-vacuous:
+
+```yaml
+- uses: garrison-hq/muster-action@v1
+  id: muster
+  with:
+    command: skills run
+    args: conformance/skills-behavioral.yaml
+    model-endpoint: https://api.example-inference-host.com/v1
+    model: gpt-4o-mini
+    api-key: ${{ secrets.MODEL_API_KEY }}
+    version: '1.2.0'
+    fail-on: never   # required -- a genuinely-firing control makes muster exit 1
+
+- name: Assert control-inversion conjunction
+  run: |
+    report_file="${{ steps.muster.outputs.report-file }}"
+    command grep -qxF '  [PASS] <ordinary-case-id>' "$report_file" \
+      && command grep -qxF '  [FAIL] <control-case-id>' "$report_file"
+```
+
+`fail-on: never` is required, not optional: the control case's genuine failure makes muster's own
+exit code `1`, and under the default `fail-on: error` the step would fail the job before the
+assertion step above ever runs. Use `grep -qxF` (anchored **and** fixed-string) — `-x` alone treats
+`[PASS]`/`[FAIL]` as a POSIX bracket expression (one character from the set), not the literal
+string, and silently fails to match the real report line; a bare substring `grep -q` cannot tell an
+ordinary case's ID from a control ID that is its substring (e.g. `case-1` vs `case-1-control`). A
+worked example against a local stub endpoint is in
+[`examples/conformance.yml`](examples/conformance.yml)'s `skills-behavioral` job.
+
+**This pattern is skills-only.** Never apply it to an a2a `control:` case: muster's own
+`applyControlInversion` already flips a correctly-firing a2a control's `passed` to `true`
+internally, so wrapping it in this conjunction a second time asserts the wrong polarity. The
+existing A2A example (`behavioral:` job above) needs no equivalent wrapper.
+
+### Fork-PR behavior
+
+`secrets.MODEL_API_KEY` (or any secret reference) resolves to `''` — not an error, not a
+skipped step — on a fork PR with no secrets configured. Because the empty-must-be-unset guard
+above unsets `MUSTER_ENDPOINT`/`MUSTER_MODEL`/`MUSTER_API_KEY` when they're empty, this collapses
+automatically into the all-empty skip path: `skipped`, exit `0`. The **primary** fork-PR guard for
+a job like `skills-behavioral` is a **step-level** `if: ${{ secrets.MODEL_API_KEY != '' }}` on the
+muster-invocation and assertion steps — a job-level `if` cannot reference the `secrets` context at
+all, so `if: ${{ secrets.MODEL_API_KEY != '' }}` on `jobs.<id>.if` fails to parse/evaluate. The
+step-level empty-unset guard above is a defense-in-depth backstop, not the primary mechanism.
+
+## Evidence-artefact pattern for a scheduled live gate (FR-006)
+
+`muster-action` itself carries no model credentials in its own CI and does not execute a live
+behavioral gate. If your workflow runs one on a schedule, commit the result as evidence — to
+`$GITHUB_STEP_SUMMARY` and/or a workflow artifact — rather than leaving the claim only in a PR
+description or a spec document (a sibling programme once recorded a control at `0/24` fired when a
+reviewer re-measured `4/24`, entirely from an unverified prose claim). A minimal, copyable schema:
+
+```json
+{
+  "schema": "muster-action/evidence-artefact/v1",
+  "generatedAt": "2026-07-31T00:00:00Z",
+  "model": "gpt-4o-mini",
+  "endpointHost": "api.example-inference-host.com",
+  "runsErrored": 0,
+  "axes": [
+    { "axis": "verbosity", "casesTotal": 12, "casesPassed": 11, "passRate": 0.9167 }
+  ],
+  "controlCasesFired": true
+}
+```
+
+- `endpointHost` is the **hostname only** — never the full URL, and never a key or token.
+- `runsErrored` is reported separately from `casesPassed`/`casesTotal` — do not collapse an errored
+  run into a failed one.
+- `controlCasesFired` must reflect the conjunction mechanism above, not the manifest's aggregate
+  `result`.
+- Writing and committing this artefact is the **consuming workflow's** responsibility; this action
+  ships the template only.
+
 ## Versioning
 
 Pin to a major tag (`@v1`) for automatic patch and minor updates, or to an exact release
