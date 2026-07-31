@@ -8,6 +8,9 @@ set -uo pipefail
 # path triggers (an empty string is not "absent").
 [ -z "${MUSTER_A2A_ENDPOINT:-}" ] && unset MUSTER_A2A_ENDPOINT
 [ -z "${MUSTER_A2A_TOKEN:-}" ] && unset MUSTER_A2A_TOKEN
+[ -z "${MUSTER_ENDPOINT:-}" ] && unset MUSTER_ENDPOINT
+[ -z "${MUSTER_MODEL:-}" ] && unset MUSTER_MODEL
+[ -z "${MUSTER_API_KEY:-}" ] && unset MUSTER_API_KEY
 
 VERSION="${MA_VERSION:-latest}"
 PKG="@garrison-hq/muster@${VERSION}"
