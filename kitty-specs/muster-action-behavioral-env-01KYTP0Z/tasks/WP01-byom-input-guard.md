@@ -144,7 +144,24 @@ Why this exists (do not re-litigate, just build against it):
 
 **Files**: `scripts/run.sh` (+3 lines).
 
-**Validation**: `bash -c 'MUSTER_ENDPOINT="" MUSTER_MODEL="" MUSTER_API_KEY="" ; [ -z "$MUSTER_ENDPOINT" ] && unset MUSTER_ENDPOINT; [ -z "$MUSTER_MODEL" ] && unset MUSTER_MODEL; [ -z "$MUSTER_API_KEY" ] && unset MUSTER_API_KEY; env | command grep -cE "MUSTER_ENDPOINT|MUSTER_MODEL|MUSTER_API_KEY"'` → `0`. Then repeat with one var set to a non-empty fake value and confirm only that one survives — this is the falsification check for the partial-triple regression (plan.md's FR-001 falsification condition): each of the three must be tested independently, not as one combined grep.
+**Validation**: the prompt's original one-liner (`bash -c 'MUSTER_ENDPOINT="" ... ; env | grep -c ...'`) assigns the vars *inside* the single-quoted `-c` string, so they are never exported into that subshell's environment — `env` never lists them regardless of whether the guard runs, so it silently prints `0` even against a pre-T003 baseline with no guard at all. Use the env-prefixed `source` form instead (assignment prefixed *before* `bash -c`, sourcing only the guard lines via `sed`/process substitution — the form T001's own recipe and this WP's actual T003 commit both use):
+
+All three empty (must print `0`):
+```bash
+MUSTER_ENDPOINT="" MUSTER_MODEL="" MUSTER_API_KEY="" \
+  bash -c 'source <(sed -n "1,13p" scripts/run.sh); env | command grep -c "MUSTER_ENDPOINT\|MUSTER_MODEL\|MUSTER_API_KEY"'
+```
+
+Falsification check for the partial-triple regression (plan.md's FR-001 falsification condition) — each of the three must be tested independently, not as one combined grep. Run each of the following three, one at a time; each must print exactly `1` (never `0`, never `3`):
+```bash
+MUSTER_ENDPOINT="http://x" MUSTER_MODEL="" MUSTER_API_KEY="" \
+  bash -c 'source <(sed -n "1,13p" scripts/run.sh); env | command grep -c "MUSTER_ENDPOINT\|MUSTER_MODEL\|MUSTER_API_KEY"'
+MUSTER_ENDPOINT="" MUSTER_MODEL="fake" MUSTER_API_KEY="" \
+  bash -c 'source <(sed -n "1,13p" scripts/run.sh); env | command grep -c "MUSTER_ENDPOINT\|MUSTER_MODEL\|MUSTER_API_KEY"'
+MUSTER_ENDPOINT="" MUSTER_MODEL="" MUSTER_API_KEY="fake" \
+  bash -c 'source <(sed -n "1,13p" scripts/run.sh); env | command grep -c "MUSTER_ENDPOINT\|MUSTER_MODEL\|MUSTER_API_KEY"'
+```
+(`sed -n "1,13p"` reflects the guard block's post-T003 line range — re-check this range if `run.sh`'s header is ever restructured.)
 
 ## Subtask T004: Verify FR-002's argv-safety mechanically
 
@@ -158,6 +175,7 @@ Why this exists (do not re-litigate, just build against it):
    MUSTER_ENDPOINT=http://127.0.0.1:9 MUSTER_MODEL=fake MUSTER_API_KEY="$FAKE_KEY_VALUE" \
      MA_COMMAND=check MA_ARGS=tests/fixtures/Soul.md GITHUB_OUTPUT="$(mktemp)" \
      bash scripts/run.sh > /tmp/wp01-t004-capture.txt 2>&1
+   command grep -q "muster result:" /tmp/wp01-t004-capture.txt   # assert the run actually happened (not a silent no-op) — must exit 0
    command grep -c "$FAKE_KEY_VALUE" /tmp/wp01-t004-capture.txt   # must be 0
    ```
 3. **Do not use a bare `grep -rq` without the leading `!`/exit-code check** — per C-004's own verification command, the assertion is that grep finds nothing; a dropped negation is the inverted-assertion trap this programme has shipped before. Use `! command grep -rq "$FAKE_KEY_VALUE" . --exclude-dir=.git` and check its exit code is `0` (meaning zero matches).
