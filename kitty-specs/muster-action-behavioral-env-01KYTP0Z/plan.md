@@ -334,6 +334,64 @@ env vars") do **not** need real muster or this workaround — a lightweight
 stub script fixture suffices for those, and should stay on the ordinary
 `version`/`npx` path since it never needs the pinned SHA's actual behavior.
 
+### 2a. Update (implementation time, 2026-07-31): Risk #4 materialized — the checkout-and-build workaround above is superseded
+
+Risk #4 in this plan's own Premortem table named this exact possibility:
+*"muster's `main` gate (PR #83) merges and cuts a release between this plan
+and implementation, making D1's 'not in any release' premise stale... 
+re-check `npm view @garrison-hq/muster versions` and PR #83's CI status at
+`/spec-kitty.tasks` time; if it has shipped, D1 should be revisited before
+task generation, not silently carried forward."` That re-check did not happen
+before `/spec-kitty.tasks` ran (WP03/WP04 were cut with the checkout-and-build
+mechanism from Correction #2 above still in them). Re-verified now, directly,
+before WP01 implementation begins:
+
+- `npm view @garrison-hq/muster versions` → `..., "1.1.0", "1.2.0"` — `1.2.0`
+  is published.
+- `npm view @garrison-hq/muster@1.2.0 gitHead` →
+  `b5d6214f559b7c322e7238d267045c05a4b54f84` — matches `garrison-hq/muster`'s
+  `main` tip after PR #83 merged (`git log -1 v1.2.0` on the muster checkout
+  confirms the same SHA and subject "fix(security): remove ReDoS-prone
+  regexes; clear SonarCloud new-code gate (#83)").
+- `git merge-base --is-ancestor a46148b969b28be4ada8fb3ba2045c77d8b97217 v1.2.0`
+  → true (exit `0`) — M5 is an ancestor of the released tag, not merely
+  claimed by version-number proximity.
+- `npm pack @garrison-hq/muster@1.2.0` and inspecting the tarball directly
+  (not just registry metadata) shows `dist/adapters/skills/{trigger,validate,
+  schema}.js` and `dist/cli/index.js` (the declared `bin` entry) already
+  present — the published package ships a prebuilt `dist/`, so no `npm ci &&
+  npm run build` step is needed to run it, unlike the git-spec-reference path
+  Correction #2 found broken.
+
+**Consequence**: the checkout-`a46148b`-and-build-and-invoke-`node
+dist/cli/index.js`-directly mechanism (Correction #2's fix) is no longer the
+correct design. Replace it, everywhere WP03/WP04 currently reference it, with
+a plain `with: version: '1.2.0'` input on the composite action's existing
+`version` input, run through the ordinary `npx -y "@garrison-hq/muster@${VERSION}"`
+path (`scripts/run.sh:20`, unchanged) — the ordinary path *now* reaches real
+M5 behavior because a real release contains it. This is strictly simpler than
+Correction #2's workaround (no `actions/checkout` of a second repo, no build
+step, no bypassing this action's own `version`/`npx` mechanism) and remains
+reproducible (an exact version number, not a floating range — see the note
+below on why the *default* range is insufficient for this purpose despite
+technically also resolving to `1.2.0` today).
+
+**Does this fully resolve WP04's "cases (a)/(b)/(c) are vacuous against the
+default version" finding (post-tasks review, Fixed-after-post-tasks-review
+item 1 in `tasks/WP04-*.md`)?** Yes, with one caveat worth recording: `npm
+install --no-save '@garrison-hq/muster@^1.1.0'` (the action's actual default
+range) was verified during this re-check to *already* resolve to `1.2.0`
+today, purely because npm's range resolution always picks the highest
+satisfying published version — so the default is, as of today, no longer
+vacuous either. That is an incidental fact about the registry's current
+state, not a designed guarantee: a future `1.3.0` release could regress or
+change behavior, and this test matrix's own correctness must not depend on
+"whatever the floating range happens to resolve to right now." **WP04's
+cases (a)/(b)/(c) still require an explicit `version: '1.2.0'` pin** (not
+reliance on the default), for reproducibility — this is a stricter, not a
+weaker, requirement than what Correction #2 originally shipped, just reached
+through the much simpler mechanism above.
+
 ## Fork-PR Path Confirmation
 
 Per the operator's explicit check: `secrets.MODEL_API_KEY`-shaped references
@@ -541,10 +599,11 @@ to consume).
   citation currency).
 - **Sequencing/depends-on**: IC-02 (hard dependency — the conjunction
   assertion step reads `steps.muster.outputs.report-file`, which does not
-  exist until IC-02 lands). Also depends on the exact-SHA-pin workaround
-  (Spec Correction #2 above) being resolved in this IC's own acceptance
-  design, since this is the concern whose negative-path job needs the pinned
-  SHA's actual runtime behavior.
+  exist until IC-02 lands). Also depends on the version-pin design (Spec
+  Correction #2, superseded by #2a — a plain `version: '1.2.0'` input pin,
+  not the checkout-and-build workaround) being resolved in this IC's own
+  acceptance design, since this is the concern whose negative-path job needs
+  the pinned M5 behavior to actually run.
 - **Risks**: Applying the conjunction pattern to an a2a manifest by mistake
   (C-005's exact hazard) — mitigated by this IC's acceptance test asserting
   the example workflow's inversion step targets a skills manifest by
@@ -584,7 +643,7 @@ or an accepted risk:
 | 1 | The exact-SHA pin mechanism (D1) ships as literally described in spec.md (`npx github:...`) and silently never runs — the example/validation workflow's behavioral job always hits the `npx` GitFetcher error, which is *itself* a non-zero exit, so the job "fails" but for the wrong reason (tooling breakage, not a real conformance signal), and nobody notices because "the job failed" looks like the mandated negative-path win | High — the mission's entire proof that its own example works would be an accidental true-negative for the wrong reason | Confirmed already happening if unaddressed (empirically reproduced above) | **Mitigated in this plan**: Spec Correction #2 replaces the mechanism with a direct source-checkout-and-build step for the SHA-dependent jobs specifically; this must be verified working (not just written) as part of IC-03/IC-04's own ATDD RED→GREEN cycle |
 | 2 | A future WP's `dependencies` list omits `docs/spec.md` (already almost happened once inside this spec itself) | Medium — a worktree turns up missing a file mid-implementation, costing a review cycle | Medium (recurring pattern per the operator's brief) | Mechanical dependency-walk gate at `tasks-finalize`, stated explicitly in the Implementation Concern Map section above so it survives into `/spec-kitty.tasks` |
 | 3 | IC-02's control-case mechanism gets split across multiple WPs at tasks time (fixture in one, assertion in another, falsification test in a third) | High — this is the exact way the operator says a control shipped "pinned by fixture construction" on a prior mission | Medium | This plan explicitly states IC-02 (and its extension into IC-03) is one WP's object, not three, in both the IC description and this risk table — redundant on purpose |
-| 4 | muster's `main` gate (PR #83) merges and cuts a release between this plan and implementation, making D1's "not in any release" premise stale | Low-medium — would not break anything, but would leave the mission recommending a pin that's no longer necessary | Low near-term (confirmed still red as of this plan: PR #83's SonarCloud check still shows `fail` as of 2026-07-31) | Accepted risk — re-check `npm view @garrison-hq/muster versions` and PR #83's CI status at `/spec-kitty.tasks` time; if it has shipped, D1 should be revisited before task generation, not silently carried forward |
+| 4 | muster's `main` gate (PR #83) merges and cuts a release between this plan and implementation, making D1's "not in any release" premise stale | Low-medium — would not break anything, but would leave the mission recommending a pin that's no longer necessary | **Materialized** — PR #83 merged, `1.2.0` published containing M5, confirmed at implementation time (2026-07-31, before WP01 implementation began) | **Resolved, not merely accepted**: re-check performed at implementation time since it was not performed at `/spec-kitty.tasks` time as this row recommended; see "Spec Corrections Found During Planning #2a" above — the checkout-and-build workaround is superseded by a plain `version: '1.2.0'` pin on the existing input; `spec.md`'s D1 and `tasks/WP03-*.md`/`tasks/WP04-*.md` updated accordingly |
 | 5 | The `charter.yaml`/`config.yaml` pointer mismatch (charter.md exists, `config.yaml` still points at a non-existent `charter.yaml`) causes a future charter-aware command to behave unexpectedly (beyond the already-reproduced `CHARTER_PACK_CONFIG_INVALID`) | Medium | High (already reproduced) | Flagged explicitly in the Charter Check section and the Tooling Note; explicitly an operator decision, not something this plan resolves by guessing at `config.yaml`'s schema |
 | 6 | The Edge Cases/FR-005(c) contradiction (Spec Correction #1) is missed by a task-writer who reads only the Edge Cases section | Medium — a task/fixture gets built against exit `2` for a scenario that actually produces exit `1`, and its own acceptance test would then fail against real muster, discovered only late | Low once flagged here, since it's now written down twice (spec.md needs a one-line fix, and this plan states the correct value) | This plan treats FR-005(c)'s value (exit `1`) as authoritative; recommend the one-line spec.md fix before/alongside `/spec-kitty.tasks` |
 
@@ -597,8 +656,11 @@ or an accepted risk:
   falsification conditions per FR (so each WP's acceptance test has a
   concrete "what would make this wrong" check built in from the start, not
   discovered during review), the corrected exit-code values (FR-005(c) = 1,
-  not the stale Edge Cases claim), and the exact-SHA-pin workaround design
-  (source checkout + build, not `npx` git-spec).
+  not the stale Edge Cases claim), and the version-pin design — **superseded
+  at implementation time (see "Spec Corrections Found During Planning #2a")**:
+  originally the exact-SHA-pin workaround (source checkout + build, not `npx`
+  git-spec), now a plain `version: '1.2.0'` input pin against the real
+  published release, since `1.2.0` shipped before implementation began.
 - **What still needs an operator decision before/alongside tasks**: (1) the
   `CHARTER_PACK_CONFIG_INVALID` tooling blocker (Tooling Note), (2) the
   `config.yaml` → `charter.yaml` pointer mismatch, (3) the one-line spec.md

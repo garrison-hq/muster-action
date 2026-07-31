@@ -64,7 +64,7 @@ This is **IC-03** in `plan.md` — has a **hard dependency on WP02**: the conjun
 
 **C-005 scoping — do not get this wrong**: the conjunction pattern applies **only** to skills-adapter `isControl: true` cases. It must **never** be applied to an a2a `control:` case — muster's own `applyControlInversion` (`src/adapters/a2a/index.ts:356-371`) already flips a correctly-firing a2a control's `passed` to `true` internally, so wrapping it in this WP's conjunction a second time would assert the wrong polarity. The existing `a2a-skip` job in `.github/workflows/test.yml` needs no equivalent wrapper — leave it alone.
 
-**Exact-SHA-pin mechanism — do not use the mechanism `spec.md`'s Decision D1 literally describes.** It was empirically tested during planning and does not work: `npx -y '@garrison-hq/muster@github:garrison-hq/muster#a46148b...'` fails with `GitFetcher requires an Arborist constructor to pack a tarball` (a real npm/npx limitation, not a typo). The **corrected mechanism** (plan.md, "Spec Corrections Found During Planning #2"): for the job(s) in this WP that need the pinned SHA's actual runtime behavior (this WP's own conjunction demo), check out `garrison-hq/muster` at `a46148b969b28be4ada8fb3ba2045c77d8b97217` in a preceding step, run `npm ci && npm run build`, and invoke `node dist/cli/index.js <command> <args>` directly — bypassing this action's own `version`/`npx` mechanism for this specific job only. Label the pin `# pre-release pin — remove once vX.Y.0 (first release ≥ a46148b) ships`.
+**Version pin — updated at implementation time (2026-07-31), do not use the SHA-checkout mechanism previously described here.** `spec.md`'s original Decision D1 proposed a git-spec reference (`npx -y '@garrison-hq/muster@github:garrison-hq/muster#a46148b...'`), which was empirically tested during planning and does not work (`GitFetcher requires an Arborist constructor to pack a tarball`, a real npm/npx limitation). Planning then adopted a checkout-and-build workaround (`plan.md`, "Spec Corrections Found During Planning #2"). **That workaround is now itself superseded** (`plan.md`, "Spec Corrections Found During Planning #2a"; `spec.md`, Post-Spec Review Correction #9): `@garrison-hq/muster@1.2.0` is published on npm, contains M5 (`git merge-base --is-ancestor a46148b969b28be4ada8fb3ba2045c77d8b97217 v1.2.0` is true), and ships a prebuilt `dist/` — no build step needed. **The corrected mechanism**: simply set `with: version: '1.2.0'` on this WP's behavioral job's muster-invocation step, using the composite action's existing `version` input and the ordinary `npx` path (`scripts/run.sh:20`, unchanged) — no `actions/checkout` of a second repo, no `npm ci`/`npm run build`, no direct `node dist/cli/index.js` invocation. Label the pin `# pinned to the first release containing M5 (a46148b) — see plan.md "Spec Corrections Found During Planning #2a"` (not `# pre-release pin`, since `1.2.0` is a real release, not a pre-release commit).
 
 ## Requirement/Constraint Cross-Reference
 
@@ -103,32 +103,24 @@ This is **IC-03** in `plan.md` — has a **hard dependency on WP02**: the conjun
 
 **Validation**: `command awk '/^  static:/{p=1} /^  [a-z][a-z0-9_-]*:/ && !/^  static:/{p=0} p' examples/conformance.yml | command grep -c 'model-endpoint\|api-key'` → `0` (NFR-001 — **fixed after post-tasks review**: a bare `grep -A5 'pull_request:' ... | grep -c ...` matches the workflow's top-level `on:` trigger-key block, never a job body, and always returns `0` regardless of what any job actually contains — a hollow assertion; this awk form scopes to the `static:` job block by indentation instead); `command grep -rn 'pull_request_target' examples/` → zero matches (NFR-002).
 
-## Subtask T016: Implement the exact-SHA-pin workaround
+## Subtask T016: Pin `version: '1.2.0'` on the behavioral job's muster step
 
-**Purpose**: Make the pinned, unreleased muster commit (`a46148b969b28be4ada8fb3ba2045c77d8b97217`) actually runnable in this WP's own validation job — the literal mechanism `spec.md` describes does not work (see Context above).
+**Purpose**: Make M5's actual runtime behavior reachable in this WP's own validation job. (Renamed at implementation time, 2026-07-31: the originally-specified "exact-SHA-pin workaround" — checkout `a46148b`, `npm ci && npm run build`, invoke `node dist/cli/index.js` directly — is superseded now that `@garrison-hq/muster@1.2.0` is a real, published, M5-containing release; see `plan.md` "Spec Corrections Found During Planning #2a" and `spec.md` Post-Spec Review Correction #9 for the evidence. Re-confirmed directly for this implementation, not taken on the plan's word: `npm view @garrison-hq/muster@1.2.0 gitHead` → `b5d6214f559b7c322e7238d267045c05a4b54f84`; `git merge-base --is-ancestor a46148b969b28be4ada8fb3ba2045c77d8b97217 v1.2.0` → true.)
 
 **Steps**:
-1. Add a preceding step in the behavioral job (or a dedicated validation job) that:
+1. On the behavioral job's muster-invocation step (the existing composite-action `uses:` step, e.g. `garrison-hq/muster-action@<ref>` or `./` for same-repo testing), add:
    ```yaml
-   - name: Checkout pinned muster (pre-release)
-     uses: actions/checkout@<pinned-sha>
-     with:
-       repository: garrison-hq/muster
-       ref: a46148b969b28be4ada8fb3ba2045c77d8b97217
-       path: muster-pinned
-   - name: Build pinned muster
-     run: |
-       cd muster-pinned
-       npm ci
-       npm run build
+   with:
+     version: '1.2.0'
+     # pinned to the first release containing M5 (a46148b) — see plan.md
+     # "Spec Corrections Found During Planning #2a"
    ```
-2. Invoke `node muster-pinned/dist/cli/index.js <command> <args>` directly for this job's muster invocations, instead of going through this action's own `version`/`npx` mechanism.
-3. Label the pin clearly: `# pre-release pin — remove once vX.Y.0 (first release ≥ a46148b) ships — see plan.md Decision D1 / Spec Correction #2`.
-4. Before implementing, re-confirm the premise still holds: `npm view @garrison-hq/muster versions` and the status of muster PR/CI for `main` — if a release containing this commit has shipped since planning, flag it and reconsider whether the pin is still necessary (do not silently carry forward a stale premise).
+   alongside this job's other `with:` inputs (`command`, `args`, `model-endpoint`, `model`, `api-key`, etc.). No `actions/checkout` of a second repository, no build step, and no bypass of this action's own `version`/`npx` mechanism — `scripts/run.sh:20`'s existing `npx -y "@garrison-hq/muster@${VERSION}"` line already handles a real semver version like any other.
+2. Do not use `version: '^1.1.0'` (the action's default) for this job even though it currently also resolves to `1.2.0` (npm's range resolution picks the highest satisfying published version) — an explicit `1.2.0` pin is required for reproducibility; a future `1.3.0` release must not silently change what this validation job exercises.
 
-**Files**: `examples/conformance.yml` (the checkout+build+invoke steps).
+**Files**: `examples/conformance.yml` (the `version: '1.2.0'` input, in place of the previously-scaffolded checkout+build steps).
 
-**Validation**: The pinned build actually runs and produces real skills-behavioral output (not a static/pre-M5 skip) — confirm by checking the captured report shows an attempted (not skipped) case.
+**Validation**: The behavioral job's muster step actually runs M5 behavior and produces real skills-behavioral output (not a static/pre-M5 skip) — confirm by checking the captured report shows an attempted (not skipped) case.
 
 ## Subtask T017: Add the skills-only control-inversion conjunction assertion
 
@@ -207,7 +199,7 @@ This is **IC-03** in `plan.md` — has a **hard dependency on WP02**: the conjun
 
 - [ ] Static (`pull_request`) jobs unchanged, reference no BYOM inputs (NFR-001).
 - [ ] `skills-behavioral` job on `schedule`/`workflow_dispatch`, fork-PR-guarded via a **step-level** `if: secrets.X != ''` (job-level is invalid — the `secrets` context is unavailable in `jobs.<id>.if`), no `pull_request_target` (NFR-002).
-- [ ] Exact-SHA-pin workaround (checkout + build + direct `node dist/cli/index.js` invocation) actually runs the pinned commit's behavior.
+- [ ] `version: '1.2.0'` pin on the behavioral job's muster step (superseding the checkout + build + direct `node dist/cli/index.js` mechanism) actually runs M5's behavior.
 - [ ] Conjunction assertion targets a skills manifest only; a2a `control:` cases are never wrapped (C-005); existing `a2a-skip` job untouched.
 - [ ] FR-006's evidence-artefact schema is documented with a literal, grep-able snippet.
 - [ ] `docs/spec.md` citations synced; fork-PR behavior documented in README.
@@ -217,14 +209,14 @@ This is **IC-03** in `plan.md` — has a **hard dependency on WP02**: the conjun
 ## Risks
 
 - **Applying the conjunction to an a2a manifest by mistake** (C-005's named hazard): mitigated by T017's explicit fixture-level guarantee, not just a comment.
-- **SHA-pin premise going stale** (muster ships a release containing `a46148b` before this WP implements): mitigated by T016's re-confirmation step before implementing.
+- **Version-pin premise going stale** (muster ships a release containing `a46148b` before this WP implements): **this already happened** — `1.2.0` shipped before implementation began, and T016 was updated at implementation time (2026-07-31) to pin the real release instead of the checkout-and-build workaround it originally specified. Re-confirm again before implementing, the same way: `npm view @garrison-hq/muster versions` / `gitHead` and `git merge-base --is-ancestor <sha> <tag>`, in case a newer release has shipped since this correction was written.
 - **Evidence recorded only in prose** (a named hazard from a sibling mission: a control recorded at `0/24` where a reviewer measured `4/24`): mitigated by T020 requiring committed run evidence, not narrative claims.
 
 ## Reviewer Guidance
 
 - Re-run T020's two-run falsification yourself; do not accept a PR description's claim that it was done.
 - Confirm the conjunction assertion's fixture is unambiguously a skills manifest, and that the existing `a2a-skip` job is byte-for-byte unchanged.
-- Confirm the SHA-pin comment cites the correct commit and a removal tracker.
+- Confirm the `version: '1.2.0'` pin's comment cites `plan.md` "Spec Corrections Found During Planning #2a" and the M5 commit it corresponds to.
 
 ## Implementation Command
 

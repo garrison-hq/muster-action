@@ -63,7 +63,7 @@ This is **IC-04** in `plan.md` — depends on **WP01** (the env-wiring these cas
 
 **Fixed after post-tasks review (HIGH, two findings, both closed the same way)**:
 
-1. **Cases (a)/(b)/(c) need the exact-SHA-pin workaround too, or they are vacuous.** This action's default `version` input (`^1.1.0`) pre-dates M5 and **hardcodes a skip for every skills-behavioral case regardless of env vars** (Verified Fact #2/#3 in `spec.md`) — so if this WP's cases run against the default version, case (a)'s "skipped/0" assertion would pass even if WP01's guard were completely broken (leaving fake values set), because the pre-M5 CLI never attempts a behavioral case at all, for any reason. That is exactly the "satisfiable without the guard actually working" vacuity `reviewer-renata` flagged. **Fix**: cases (a), (b), and (c) must invoke the pinned, real M5 build — the same checkout-`a46148b969b28be4ada8fb3ba2045c77d8b97217`-and-`npm run build`-then-`node dist/cli/index.js` mechanism WP03's T016 already builds (do not re-derive it independently; reuse the identical steps, labeled with the same removal tracker). **Case (d) does not need the pin** — a manifest read/parse failure (`doSkillsRun`'s own try/catch) happens before any version-specific behavioral-trigger logic and is not M5-specific; the default `version` is fine for case (d) alone.
+1. **Cases (a)/(b)/(c) need an explicit M5-containing version pin too, or they are vacuous.** This action's default `version` input (`^1.1.0`) originally pre-dated M5 and **hardcoded a skip for every skills-behavioral case regardless of env vars** (Verified Fact #2/#3 in `spec.md`) — so if this WP's cases run against the default version, case (a)'s "skipped/0" assertion would pass even if WP01's guard were completely broken (leaving fake values set), because the pre-M5 CLI never attempts a behavioral case at all, for any reason. That is exactly the "satisfiable without the guard actually working" vacuity `reviewer-renata` flagged. **Fix, updated at implementation time (2026-07-31)**: `@garrison-hq/muster@1.2.0` is now published on npm and contains M5 (confirmed: `npm view @garrison-hq/muster@1.2.0 gitHead` → `b5d6214f559b7c322e7238d267045c05a4b54f84`; `git merge-base --is-ancestor a46148b969b28be4ada8fb3ba2045c77d8b97217 v1.2.0` → true) — cases (a), (b), and (c) must set `with: version: '1.2.0'` on the muster-invocation step, the same pin WP03's T016 now uses (`plan.md` "Spec Corrections Found During Planning #2a" supersedes the checkout-`a46148b`-and-`npm run build`-then-`node dist/cli/index.js` mechanism this bullet originally specified — that workaround is no longer needed since the real published release already provides M5's behavior through the action's ordinary `npx` path). Do not rely on the default `^1.1.0` range for these cases even though it happens to also resolve to `1.2.0` today (npm always picks the highest satisfying published version) — an explicit `1.2.0` pin is required for reproducibility, since a future `1.3.0` release must not silently change what this test matrix exercises. **Case (d) does not need the pin** — a manifest read/parse failure (`doSkillsRun`'s own try/catch) happens before any version-specific behavioral-trigger logic and is not M5-specific; the default `version` is fine for case (d) alone.
 2. **A missing/invalid skills-manifest fixture would make case (b)'s "mandated negative-path" failure vacuous** (`debugger-debbie`'s finding): muster's `runBehavioralSkillCase` reads `skillDir`/`querySetPath` *before* any network call — pointing case (b)/(c) at a manifest that doesn't parse, or that references a non-existent skill dir, would report `failed`/`1` for a **fixture defect**, not the dead endpoint. **Fix**: T022-T024 must use a genuinely schema-valid skills manifest fixture (real `skillDir` + query set — reuse WP02's `tests/fixtures/skills-anchor/` assets if suitable, or build a WP04-owned equivalent under `tests/fixtures/`, since `tests/fixtures/**` is this WP's own owned glob), and case (b)'s assertion must additionally grep the report content for a connection-refused/network-error signature (not just check the aggregate `exit-code`), to prove the failure came from the dead endpoint specifically.
 
 ## Requirement/Constraint Cross-Reference
@@ -79,7 +79,7 @@ This is **IC-04** in `plan.md` — depends on **WP01** (the env-wiring these cas
 
 **Steps**:
 1. Add four new jobs (or a matrix) to `.github/workflows/test.yml`: `byom-all-empty`, `byom-dead-endpoint`, `byom-missing-key`, `byom-malformed-manifest` — each currently pointing at a not-yet-existing fixture or asserting a not-yet-true outcome.
-2. For the three jobs that need it (`byom-all-empty`, `byom-dead-endpoint`, `byom-missing-key` — not `byom-malformed-manifest`, see the Context note above), scaffold the exact-SHA-pin checkout+build steps (reused from WP03's T016) as part of this same commit, even though they won't be exercised meaningfully until T022-T024 land.
+2. For the three jobs that need it (`byom-all-empty`, `byom-dead-endpoint`, `byom-missing-key` — not `byom-malformed-manifest`, see the Context note above), scaffold `with: version: '1.2.0'` on each job's muster-invocation step (the same pin WP03's T016 uses) as part of this same commit, even though the assertions won't be exercised meaningfully until T022-T024 land.
 3. Create a genuinely schema-valid skills manifest fixture for these three jobs to share (per the Context note above) — verify it against muster's real schema before committing it, the same way WP02's T010 does.
 4. Commit this failing scaffold before T022-T025 make each case pass.
 
@@ -92,7 +92,7 @@ This is **IC-04** in `plan.md` — depends on **WP01** (the env-wiring these cas
 **Purpose**: Prove the fork-PR-shaped default path stays green without ever contacting a model (User Story 2, Scenario 1; SC-002).
 
 **Steps**:
-1. Job `byom-all-empty`: using the pinned M5 build (T021 step 2/3 — **required, see Context**: the default `version` hardcodes a skip regardless of env vars, which would make this assertion pass vacuously even if the guard were broken), run against the shared valid skills manifest fixture, `model-endpoint`/`model`/`api-key` all left at default (empty).
+1. Job `byom-all-empty`: using the `version: '1.2.0'` pin (T021 step 2 — **required, see Context**: the default `version` originally hardcoded a skip regardless of env vars, which would make this assertion pass vacuously even if the guard were broken), run against the shared valid skills manifest fixture, `model-endpoint`/`model`/`api-key` all left at default (empty).
 2. Assert:
    ```bash
    test "${{ steps.muster.outputs.result }}" = "skipped"
@@ -108,7 +108,7 @@ This is **IC-04** in `plan.md` — depends on **WP01** (the env-wiring these cas
 **Purpose**: This is **the mission's single most important negative-path proof** — a step with the endpoint configured but broken, asserted to fail, not skip, not silently pass.
 
 **Steps**:
-1. Job `byom-dead-endpoint`: using the pinned M5 build (required — see Context), set `model-endpoint: http://127.0.0.1:9` (guaranteed connection-refused), `model`/`api-key` empty, targeting the shared valid skills manifest fixture. Set `fail-on: never` on the muster step — **required**: this case's exit code is `1` by design, and under default `fail-on: error` the step itself would fail and the assertion step below would never run (GitHub Actions skips subsequent steps once one fails, without `if: always()`).
+1. Job `byom-dead-endpoint`: using the `version: '1.2.0'` pin (required — see Context), set `model-endpoint: http://127.0.0.1:9` (guaranteed connection-refused), `model`/`api-key` empty, targeting the shared valid skills manifest fixture. Set `fail-on: never` on the muster step — **required**: this case's exit code is `1` by design, and under default `fail-on: error` the step itself would fail and the assertion step below would never run (GitHub Actions skips subsequent steps once one fails, without `if: always()`).
 2. Assert:
    ```bash
    test "${{ steps.muster.outputs.result }}" = "failed"
@@ -126,7 +126,7 @@ This is **IC-04** in `plan.md` — depends on **WP01** (the env-wiring these cas
 **Purpose**: Prove the skip decision is keyed **only** on endpoint presence, not key presence.
 
 **Steps**:
-1. Job `byom-missing-key`: using the pinned M5 build (required — see Context), set `model-endpoint` to a real-looking (but not necessarily reachable) value, `api-key` explicitly empty, targeting the shared valid skills manifest fixture, and ensure `OPENAI_API_KEY` is **absent** from the runner env (do not let a stray ambient env var accidentally supply a fallback key). Set `fail-on: never` on the muster step, same reason as case (b).
+1. Job `byom-missing-key`: using the `version: '1.2.0'` pin (required — see Context), set `model-endpoint` to a real-looking (but not necessarily reachable) value, `api-key` explicitly empty, targeting the shared valid skills manifest fixture, and ensure `OPENAI_API_KEY` is **absent** from the runner env (do not let a stray ambient env var accidentally supply a fallback key). Set `fail-on: never` on the muster step, same reason as case (b).
 2. Assert the same as case (b): `failed`/`1`.
 
 **Files**: `.github/workflows/test.yml` (job body).
@@ -139,7 +139,7 @@ This is **IC-04** in `plan.md` — depends on **WP01** (the env-wiring these cas
 
 **Steps**:
 1. Create `tests/fixtures/malformed-manifest.yaml` — a genuinely invalid YAML file (not merely unusual-but-valid; per plan.md's falsification condition, a fixture that's valid YAML with an unexpected-but-schema-accepted shape does **not** exercise this path — it must be a real parse failure).
-2. Job `byom-malformed-manifest`: run this action with `model-endpoint` set (endpoint presence is irrelevant here — the failure happens at manifest-read time, before any endpoint call), targeting the malformed fixture. **This case does not need the exact-SHA-pin** (see Context note above) — a manifest read/parse failure is not M5-specific, so the default `version` is fine here. Set `fail-on: never` on the muster step (exit `2` would otherwise fail the step before the assertion runs, same reason as cases (b)/(c)).
+2. Job `byom-malformed-manifest`: run this action with `model-endpoint` set (endpoint presence is irrelevant here — the failure happens at manifest-read time, before any endpoint call), targeting the malformed fixture. **This case does not need the `version: '1.2.0'` pin** (see Context note above) — a manifest read/parse failure is not M5-specific, so the default `version` is fine here. Set `fail-on: never` on the muster step (exit `2` would otherwise fail the step before the assertion runs, same reason as cases (b)/(c)).
 3. Assert:
    ```bash
    test "${{ steps.muster.outputs.result }}" = "errored"
@@ -180,7 +180,7 @@ This is **IC-04** in `plan.md` — depends on **WP01** (the env-wiring these cas
 
 ## Definition of Done
 
-- [ ] Cases (a)/(b)/(c) run the pinned M5 build (not the default `^1.1.0`, which hardcodes a skip regardless of env vars and would make these assertions vacuous); case (d) correctly does not need the pin.
+- [ ] Cases (a)/(b)/(c) run with `version: '1.2.0'` pinned (not the default `^1.1.0`, even though the default range also happens to resolve to `1.2.0` today — an explicit pin is required for reproducibility); case (d) correctly does not need the pin.
 - [ ] Cases (a)/(b)/(c) target a genuinely schema-valid skills manifest fixture (verified against muster's real schema).
 - [ ] Case (a): all empty → `skipped`/`0`, non-vacuously (see above).
 - [ ] Case (b): dead endpoint → `failed`/`1`, with `fail-on: never` so the assertion step runs, and the failure text confirmed network-caused (not a fixture defect) — observed actually failing in a real CI run (the mandated negative-path proof).
@@ -194,7 +194,7 @@ This is **IC-04** in `plan.md` — depends on **WP01** (the env-wiring these cas
 - **The single highest-value risk in this whole mission** (per the operator's own framing): a workflow step that "runs, prints, and exits 0 regardless." Mitigated structurally: (b)/(c) assert `failed`/`1` explicitly, not merely "not skipped" or "non-zero" — a regression to silent-`0` fails the assertion directly, not just the intent.
 - **Case (d)'s fixture accidentally being parseable**: mitigated by T025's explicit local pre-verification that the fixture genuinely fails to parse.
 - **Ambient `OPENAI_API_KEY` in the runner env accidentally supplying a fallback for case (c)**: mitigated by T024's explicit check that it's absent, not just that `api-key` input is empty.
-- **Running cases (a)/(b)/(c) against the default (pre-M5) `version` would make all three assertions vacuously satisfiable regardless of whether WP01's guard actually works** (post-tasks finding, `reviewer-renata`): mitigated by mandating the exact-SHA-pin build for these three cases (T021-T024).
+- **Running cases (a)/(b)/(c) against the default `version` alone (rather than an explicit pin) would make all three assertions depend on the registry's current floating-range resolution rather than a reproducible pin** (post-tasks finding, `reviewer-renata`; note: as of implementation time the default `^1.1.0` range also happens to resolve to `1.2.0`, so this is no longer a pre-M5-hardcoded-skip risk, but it remains a reproducibility risk): mitigated by mandating an explicit `version: '1.2.0'` pin for these three cases (T021-T024).
 - **A missing/invalid fixture would make case (b)'s "mandated negative-path" fail for the wrong reason** (post-tasks finding, `debugger-debbie`): mitigated by requiring a genuinely schema-valid manifest and a network-error-signature check in T023, not just the aggregate exit-code.
 - **A firing exit-1/exit-2 step aborting the job before the assertion step runs** (post-tasks finding, `debugger-debbie` — the same class of bug as WP02/WP03's missing `fail-on: never`): mitigated by requiring `fail-on: never` explicitly on every muster step in cases (b)/(c)/(d).
 
