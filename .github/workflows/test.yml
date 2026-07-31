@@ -209,6 +209,13 @@ jobs:
   # Reuses WP02's fixture read-only (tests/fixtures/skills-control-anchor.yaml,
   # tests/fixtures/skills-anchor/, tests/fixtures/stub-endpoint.js) -- no new
   # fixture files added for this job (F-7).
+  #
+  # Both directions of this job were verified with a real, genuine execution
+  # of this exact workflow file (act v0.2.89, catthehacker/ubuntu:act-latest,
+  # 2026-07-31) before this evidence note was committed: the healthy-endpoint
+  # conjunction step and the dead-endpoint falsification step both ran and
+  # both asserted correctly -- see this commit's message for the full log
+  # excerpt (job outcome, per-step results, both PASS/FAIL marker states).
 
   skills-conjunction-regression:
     name: 'FR-004/User Story 3: report-file conjunction regression (T028)'
