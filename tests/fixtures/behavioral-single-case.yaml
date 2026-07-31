@@ -1,0 +1,14 @@
+# WP04 T021 fixture: a single ordinary behavioral case, used by the FR-005
+# exit-path matrix cases (a)/(b)/(c). Reuses WP02's already schema-verified
+# skillDir/querySetPath (tests/fixtures/skills-anchor/,
+# tests/fixtures/skills-anchor-queries.yaml) read-only -- this manifest is a
+# new file WP04 owns; WP02's existing fixture files are not modified (F-7).
+cases:
+  - id: case-1
+    type: behavioral
+    skillDir: skills-anchor
+    profile: base
+    querySetPath: skills-anchor-queries.yaml
+    runsPerQuery: 1
+    threshold: 0.5
+    isControl: false
