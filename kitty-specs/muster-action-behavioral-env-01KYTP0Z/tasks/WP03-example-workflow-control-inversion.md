@@ -270,6 +270,34 @@ vacuous. This is the ninth vacuous verification command recorded across this mis
 `f5f527c`'s own T014 RED-check disclosure (six-space indent never matched, corrected to
 eight-space before commit) for a prior case in this same WP that was caught and fixed pre-commit.
 
+## Review Provenance (recorded post hoc)
+
+**No canonical `spec-kitty` review event exists for this WP.** Unlike WP01
+(reviewed by the operator directly through the `spec-kitty` CLI, recorded in
+`status.json` as event `01KYTYGEWG2EVDMQ7T65KM2BT1` with `role: reviewer`),
+this WP's review was conducted out-of-band: an agent reviewer, dispatched by
+the mission coordinator and reporting to them, exercised the example
+control-inversion workflow directly rather than through a tracked
+`spec-kitty` review transition. Consequently this WP's `approved` transition
+in `status.json` carries `role: implementer` (not `role: reviewer`) and no
+reviewer/notes fields — the tooling has no CLI-recorded artifact to
+attribute to a distinct reviewer identity, and none should be inferred from
+its absence.
+
+- **Verdict**: APPROVE-WITH-FOLLOWUPS.
+- **Follow-ups closed, independently confirmed against this mission's own
+  git history**: B-1/B-2 (false `--json` ownership claim; readiness gate
+  fails open) and F-1 closed together in commit `c0efaea`
+  ("fix(examples,README): readiness gate fails open (B-2); correct false
+  --json ownership claim (B-1/F-1)"); F-2 (boundary-risk decision on
+  human-format marker dependence) recorded in `38ad471`; N-1/N-2
+  (port-clash gap in the readiness gate; unbounded `curl`) closed in this
+  WP's own HEAD, `962d891`.
+- **What this note is not**: a claim that this review is equivalent to
+  WP01's CLI-recorded one. The verdict is real and its follow-ups are
+  closed; the provenance trail for it is thinner than WP01's, and that gap
+  is recorded here rather than routed around.
+
 ## Implementation Command
 
 Depends on WP02:

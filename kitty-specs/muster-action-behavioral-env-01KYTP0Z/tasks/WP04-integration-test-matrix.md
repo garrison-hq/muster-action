@@ -221,6 +221,31 @@ This is **IC-04** in `plan.md` — depends on **WP01** (the env-wiring these cas
 - Manually inspect the malformed-manifest fixture; confirm it is a genuine parse failure, not merely unusual-but-valid YAML.
 - Check that case (c)'s job definition explicitly excludes `OPENAI_API_KEY` from the runner environment (not merely omits setting it, if some ambient default could otherwise leak in).
 
+## Review Provenance (recorded post hoc)
+
+**No canonical `spec-kitty` review event exists for this WP.** Unlike WP01
+(reviewed by the operator directly through the `spec-kitty` CLI, recorded in
+`status.json` as event `01KYTYGEWG2EVDMQ7T65KM2BT1` with `role: reviewer`),
+this WP's review was conducted out-of-band: an agent reviewer, dispatched by
+the mission coordinator and reporting to them, exercised the BYOM exit-path
+matrix and report-file conjunction directly rather than through a tracked
+`spec-kitty` review transition. Consequently this WP's `approved` transition
+in `status.json` carries `role: implementer` (not `role: reviewer`) and no
+reviewer/notes fields — the tooling has no CLI-recorded artifact to
+attribute to a distinct reviewer identity, and none should be inferred from
+its absence.
+
+- **Verdict**: APPROVE-WITH-FOLLOWUPS.
+- **Follow-ups closed, independently confirmed against this mission's own
+  git history**: F1/F2 (`set -e` exemption vacuity in the byom-dead-endpoint
+  diagnostic and byom-cross-check) closed in this WP's own HEAD, `7b811fa`;
+  a related vacuity gap in case (b)'s network-vs-fixture-defect distinction
+  closed earlier in `327e9db`.
+- **What this note is not**: a claim that this review is equivalent to
+  WP01's CLI-recorded one. The verdict is real and its follow-ups are
+  closed; the provenance trail for it is thinner than WP01's, and that gap
+  is recorded here rather than routed around.
+
 ## Implementation Command
 
 Depends on WP01 and WP02:
