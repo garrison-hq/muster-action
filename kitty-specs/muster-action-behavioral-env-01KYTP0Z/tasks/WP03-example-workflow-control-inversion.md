@@ -78,30 +78,30 @@ This is **IC-03** in `plan.md` — has a **hard dependency on WP02**: the conjun
 
 ## Subtask T014: [RED] Author the failing User Story 3 acceptance test
 
-**Purpose**: Prove, before implementation, that the conjunction check does not exist yet — and design the two-run falsification (healthy vs. dead endpoint) up front.
+**Purpose**: Prove, before implementation, that the conjunction check does not exist yet — and design the two-run falsification (healthy vs. dead endpoint) up front. **Fixed after post-tasks review**: the exact executable RED artifact and its fixture must be named explicitly, not left as "design it, don't fully wire it yet."
 
 **Steps**:
-1. Design (do not yet fully wire) the assertion this WP must ship: `test -s "$report_file" && command grep -qx '  [PASS] <ordinary-id>' "$report_file" && command grep -qx '  [FAIL] <control-id>' "$report_file"`.
-2. Add a placeholder/failing version of this check to `examples/conformance.yml` (or a CI job that exercises it) that fails today because the behavioral job/conjunction step doesn't exist yet.
-3. Commit this failing state before adding the real behavioral job (T015-T017).
+1. This subtask depends on WP02 having already shipped `tests/fixtures/skills-control-anchor.yaml` + `tests/fixtures/skills-anchor/` + `tests/fixtures/stub-endpoint.js` (WP02's T010) — **reuse that exact fixture and stub, do not build a separate WP03-specific one**; two divergent control fixtures would be a needless maintenance burden and a place for the two to silently drift apart.
+2. Add a new job to `examples/conformance.yml` (e.g. `skills-behavioral`) that references WP02's fixture, with the conjunction-assertion step present but pointed at a manifest/endpoint combination that cannot yet pass (e.g. no muster invocation wired yet, or the assertion step referencing an output that doesn't exist until T015-T017 land) — the concrete RED artifact is this job in `examples/conformance.yml` itself; state in your commit message exactly which line/step is expected to fail and why.
+3. Commit this failing state before adding the real behavioral job wiring (T015-T017).
 
 **Files**: `examples/conformance.yml` (scaffolding only at this point).
 
-**Validation**: The RED commit's job fails because the behavioral job/conjunction step is absent — not for an unrelated YAML error.
+**Validation**: The RED commit's job fails because the behavioral job/conjunction step is genuinely absent or incomplete — not for an unrelated YAML error.
 
 ## Subtask T015: Add the behavioral job to `examples/conformance.yml`
 
 **Purpose**: Ship the fork-PR-safe, schedule/dispatch-triggered example.
 
 **Steps**:
-1. Confirm the existing static jobs (on `pull_request`) are unchanged and reference no BYOM inputs (NFR-001).
-2. Add a new job triggered on `schedule`/`workflow_dispatch` (never `pull_request_target` — NFR-002; this mission introduces none) that sets `model-endpoint`/`model`/`api-key` from `secrets.*`.
-3. Guard the job with a job-level `if: ${{ secrets.MUSTER_API_KEY != '' }}`-style condition (per `spec.md`'s Fork-PR/Missing-Secret Behavior section) — the step-level unset guard from WP01 is a defense-in-depth backstop, not the primary mechanism; document why in a comment.
-4. Reference a skills manifest with one ordinary case and one `isControl: true` case (you may reuse WP02's `tests/fixtures/skills-control-anchor.yaml` shape, or build a dedicated example-facing fixture under `tests/fixtures/` if the WP02 fixture is stub-endpoint-specific and unsuitable for the example's own docs-facing purpose — your call, document which).
+1. Confirm the existing `static:` job (on `push`/`pull_request`, per the current `examples/conformance.yml`) is unchanged and references no BYOM inputs (NFR-001).
+2. Add the new `skills-behavioral` job. Add `schedule:`/`workflow_dispatch:` to the workflow's top-level `on:` block (currently only `push`/`pull_request`) — do **not** use `pull_request_target` (NFR-002; this mission introduces none). This job is distinct from the existing `behavioral:` job (which is the A2A example, untouched, C-005) — name it clearly, e.g. `skills-behavioral`, to avoid any reader confusing the two.
+3. **Fixed after post-tasks review (the job-level form is invalid GitHub Actions syntax)**: the `secrets` context is **not available in `jobs.<id>.if`** — a job-level `if: ${{ secrets.MODEL_API_KEY != '' }}` would fail to parse/evaluate. Guard at the **step level** instead: give the muster-invocation step (and the assertion step after it) `if: ${{ secrets.MODEL_API_KEY != '' }}` (steps *can* reference `secrets` in their own `if:`). Document in a comment that the step-level unset guard from WP01 is the defense-in-depth backstop; this step-level `if:` is the primary skip mechanism for a fork PR with no secrets configured.
+4. Reference WP02's exact fixture (`tests/fixtures/skills-control-anchor.yaml` + its skill dir/query set + `stub-endpoint.js`) — per T014, do not build a separate one.
 
 **Files**: `examples/conformance.yml` (+~30-50 lines).
 
-**Validation**: `command grep -A5 'pull_request:' examples/conformance.yml | command grep -c 'model-endpoint\|api-key'` → `0` (NFR-001); `command grep -rn 'pull_request_target' examples/` → zero matches (NFR-002).
+**Validation**: `command awk '/^  static:/{p=1} /^  [a-z][a-z0-9_-]*:/ && !/^  static:/{p=0} p' examples/conformance.yml | command grep -c 'model-endpoint\|api-key'` → `0` (NFR-001 — **fixed after post-tasks review**: a bare `grep -A5 'pull_request:' ... | grep -c ...` matches the workflow's top-level `on:` trigger-key block, never a job body, and always returns `0` regardless of what any job actually contains — a hollow assertion; this awk form scopes to the `static:` job block by indentation instead); `command grep -rn 'pull_request_target' examples/` → zero matches (NFR-002).
 
 ## Subtask T016: Implement the exact-SHA-pin workaround
 
@@ -135,13 +135,15 @@ This is **IC-03** in `plan.md` — has a **hard dependency on WP02**: the conjun
 **Purpose**: Ship the actual User Story 3 mechanism, scoped correctly per C-005.
 
 **Steps**:
-1. Add a downstream step in the same job (after the muster run) that reads `steps.<muster-step-id>.outputs.report-file` and asserts the conjunction:
+1. On the muster-invocation step in the `skills-behavioral` job, set `fail-on: never`. **This is required, not optional**: WP02's control case fires and fails by design, which makes muster's own exit code `1` — under the default `fail-on: error`, the composite action's step would fail the job right there and the downstream assertion step below would never run at all (GitHub Actions skips subsequent steps in a job once one fails, unless they declare `if: always()` or similar). `fail-on: never` reports the outcome via outputs only and lets the job continue to the assertion step, exactly like the existing `static-fail` job in `.github/workflows/test.yml` already does for the same reason.
+2. Add a downstream step in the same job (after the muster run) that reads `steps.<muster-step-id>.outputs.report-file` and asserts the conjunction:
    ```bash
-   command grep -qx '  [PASS] <ordinary-case-id>' "$report_file" \
-     && command grep -qx '  [FAIL] <control-case-id>' "$report_file"
+   command grep -qxF '  [PASS] <ordinary-case-id>' "$report_file" \
+     && command grep -qxF '  [FAIL] <control-case-id>' "$report_file"
    ```
-2. **Verify this step targets a skills manifest only** — add an explicit comment or a fixture-level guarantee (not just a comment) that this assertion is never run against an a2a `control:` manifest. Consider a lightweight guard: assert the manifest path/fixture used in this job is the skills fixture, not `tests/fixtures/a2a-behavioral.yaml`.
-3. Confirm the existing `a2a-skip` job is completely untouched — it needs no equivalent wrapper (C-005).
+   **Fixed after post-tasks review (critical)**: use `-qxF` (fixed-string), not `-qx` alone — `[PASS]`/`[FAIL]` are literal brackets, and `-x` without `-F` treats them as a BRE bracket expression (matching one character from the set, e.g. `P`/`A`/`S`), which does **not** match the real report line at all. `debugger-debbie` confirmed this empirically during post-tasks review.
+3. **Verify this step targets a skills manifest only** — add an explicit comment or a fixture-level guarantee (not just a comment) that this assertion is never run against an a2a `control:` manifest. Consider a lightweight guard: assert the manifest path/fixture used in this job is the skills fixture, not `tests/fixtures/a2a-behavioral.yaml`.
+4. Confirm the existing `a2a-skip` job (in `.github/workflows/test.yml`, WP04's file, not this WP's) and the existing `behavioral:` job (in `examples/conformance.yml`, this WP's file but the A2A example, unrelated to this WP's new `skills-behavioral` job) are completely untouched — neither needs an equivalent wrapper (C-005).
 
 **Files**: `examples/conformance.yml` (the assertion step).
 
@@ -178,7 +180,7 @@ This is **IC-03** in `plan.md` — has a **hard dependency on WP02**: the conjun
 **Purpose**: Close the near-miss the spec's own review found: `docs/spec.md` is cited by NFR-002's verification command and the Scope Guard section three times, but was nearly omitted from WP dependency lists.
 
 **Steps**:
-1. In `README.md`, document the fork-PR behavior explicitly: `secrets.MUSTER_API_KEY` (or any secret ref) resolves to `''` on a fork PR — not an error, not a skip — so it collapses into the all-empty skip path automatically; the primary guard is still the job-level `if: secrets.X != ''` pattern (T015), not just the step-level unset guard.
+1. In `README.md`, document the fork-PR behavior explicitly: `secrets.MUSTER_API_KEY` (or any secret ref) resolves to `''` on a fork PR — not an error, not a skip — so it collapses into the all-empty skip path automatically; the primary guard is still the **step-level** `if: secrets.X != ''` pattern (T015 — job-level would be invalid, `secrets` is unavailable in `jobs.<id>.if`), not just WP01's step-level unset guard (which is the defense-in-depth backstop, not the primary mechanism).
 2. Update `docs/spec.md` so its D1/D5/scope-guard citations stay in sync with what this mission actually shipped (per plan.md's Project Structure note: "D1/D5/scope-guard citations already point here — must stay in sync").
 3. Re-run NFR-002's verification command (`command grep -rn 'pull_request_target' examples/ docs/ README.md .github/workflows/`) after this subtask — it spans all three files/dirs this WP (and WP01) touch; confirm zero matches, or a reviewed justification comment if any ever appears.
 
@@ -204,7 +206,7 @@ This is **IC-03** in `plan.md` — has a **hard dependency on WP02**: the conjun
 ## Definition of Done
 
 - [ ] Static (`pull_request`) jobs unchanged, reference no BYOM inputs (NFR-001).
-- [ ] Behavioral job on `schedule`/`workflow_dispatch`, fork-PR-guarded (`if: secrets.X != ''`), no `pull_request_target` (NFR-002).
+- [ ] `skills-behavioral` job on `schedule`/`workflow_dispatch`, fork-PR-guarded via a **step-level** `if: secrets.X != ''` (job-level is invalid — the `secrets` context is unavailable in `jobs.<id>.if`), no `pull_request_target` (NFR-002).
 - [ ] Exact-SHA-pin workaround (checkout + build + direct `node dist/cli/index.js` invocation) actually runs the pinned commit's behavior.
 - [ ] Conjunction assertion targets a skills manifest only; a2a `control:` cases are never wrapped (C-005); existing `a2a-skip` job untouched.
 - [ ] FR-006's evidence-artefact schema is documented with a literal, grep-able snippet.

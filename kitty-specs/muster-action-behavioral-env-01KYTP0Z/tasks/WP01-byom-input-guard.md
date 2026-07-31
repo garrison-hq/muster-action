@@ -82,18 +82,20 @@ Why this exists (do not re-litigate, just build against it):
 
 ## Subtask T001: [RED] Author the failing acceptance test for FR-001/FR-002
 
-**Purpose**: Prove, before any implementation change, that the guard/inputs do not yet exist — and that the test fails for that specific reason.
+**Purpose**: Prove, before any implementation change, that the guard/inputs do not yet exist — and that the test fails for that specific reason. Fixed after post-tasks review: this test must be **self-contained** (direct invocation of `scripts/run.sh`, not a `.github/workflows/test.yml` job) because `test.yml` is WP04's owned file, not this WP's, and because it must be **distinct** from WP04's later `byom-all-empty` case (T022) rather than duplicating it — that duplicate existed in an earlier draft of this prompt and was removed.
 
 **Steps**:
-1. Add a new job to `.github/workflows/test.yml` (e.g. `byom-guard-unset`) that runs this action with `model-endpoint`, `model`, `api-key` all left at default (empty), targeting a manifest with a behavioral case (you will need a small fixture skills manifest with one ordinary case for this — a minimal one is fine here; WP02 introduces the richer control-case fixture, do not duplicate it).
-2. Because `action.yml` does not yet declare these inputs, GitHub Actions will not fail on an unrecognized `with:` key for a composite action (it is tolerated with a warning) — so the test must assert the **behavioral consequence** of "the guard/env-wiring does not exist yet", not merely that the workflow parses. Concretely: also add a second temporary step/job (or extend the same job) that sets the three vars via job-level `env:` directly (bypassing the not-yet-existing `with:` inputs) with **non-empty fake values**, and assert the values *do* reach the muster subprocess today (this is Verified Fact #4's baseline — already true, requires no code change, and is not what you are testing) — then assert that the **new** `with:` input path does *not yet* set/unset anything (because `action.yml` doesn't map it yet). Pick whichever concrete assertion cleanly fails today and will cleanly pass once T002/T003 land; record your exact mechanism in the WP's implementation notes so the reviewer can verify RED-for-the-right-reason.
-3. Commit this failing test as its own commit, before any `action.yml`/`scripts/run.sh` change.
+1. Do **not** touch `.github/workflows/test.yml` or add a CI job — `scripts/run.sh` is a standalone bash script and can be invoked directly on the command line with controlled env vars, which is both simpler and keeps this subtask inside WP01's own `owned_files`.
+2. The RED condition this subtask proves is **mapping existence**, not the empty/skip path (WP04's T022 already owns proving the empty/skip path via the real composite action in CI — testing it again here would be a duplicate, not independent coverage). Concretely: today, `action.yml` has no `model-endpoint`/`model`/`api-key` inputs, so there is no mapping from any `with:` value to `MUSTER_ENDPOINT`/`MUSTER_MODEL`/`MUSTER_API_KEY` at all. Write a short recipe (a script or a documented set of commands, your choice, checked in as e.g. a comment block or left as commit-message-documented manual steps — this repo has no test framework, per plan.md) that:
+   - Sets `MUSTER_ENDPOINT=http://127.0.0.1:9`, `MUSTER_MODEL=fake-model`, `MUSTER_API_KEY=fake-key-value` directly as env vars (simulating what `action.yml`'s future `env:` mapping will produce), then invokes `GITHUB_OUTPUT="$(mktemp)" bash scripts/run.sh` with `MA_COMMAND=check MA_ARGS=tests/fixtures/Soul.md` (a cheap, static, already-existing fixture — no network call happens for this specific check).
+   - Asserts (today, before this WP lands) that these three vars, once set, are **not** unset by `scripts/run.sh` even when re-set to empty — i.e., confirm the *guard itself* doesn't exist yet: `MUSTER_ENDPOINT="" MUSTER_MODEL="" MUSTER_API_KEY="" GITHUB_OUTPUT="$(mktemp)" bash -c 'source <(sed -n "1,11p" scripts/run.sh); env | command grep -c "MUSTER_ENDPOINT\|MUSTER_MODEL\|MUSTER_API_KEY"'` should currently print `0` only for the two pre-existing A2A vars' pattern coverage, **not** for these three (since lines 1-11 of the pre-WP01 script don't mention them at all) — pick the exact line range that reflects the script's real current line count and state it in your commit message so the reviewer can re-run it verbatim.
+3. Commit this failing recipe (and its observed failing output, e.g. as a comment or a short markdown note) as its own commit, before any `action.yml`/`scripts/run.sh` change.
 
-**Files**: `.github/workflows/test.yml` (new job), `tests/fixtures/*` (minimal ordinary-case manifest if needed — do not build the control-case fixture here, that is WP02's T010).
+**Files**: none required beyond what's already in `owned_files` — no new fixture files needed (`tests/fixtures/Soul.md` already exists).
 
-**Validation**: `git log` shows this commit before the T002/T003 commits; running the job at this commit fails, and the failure reason is "the new input surface doesn't exist/doesn't guard yet" — not a YAML syntax error or missing fixture.
+**Validation**: `git log` shows this commit before the T002/T003 commits; re-running the recipe at this commit reproduces the failure, and the failure reason is "the guard doesn't exist yet for these three vars" — not a YAML syntax error or missing fixture.
 
-**Falsification condition** (what would make this check wrong if skipped): if the RED commit's failure is actually caused by something unrelated (e.g. a fixture path typo), the ATDD discipline is not actually verified — the reviewer must reject a RED commit that fails for the wrong reason.
+**Falsification condition** (what would make this check wrong if skipped): if the RED commit's failure is actually caused by something unrelated (e.g. a fixture path typo), the ATDD discipline is not actually verified — the reviewer must reject a RED commit that fails for the wrong reason. Also: if this subtask's RED condition duplicates WP04's T022 (all-empty → skip), that is itself a defect — the reviewer should reject any version of this subtask that re-tests the empty/skip path instead of mapping-existence.
 
 ## Subtask T002: Add the three new inputs to `action.yml`
 
@@ -149,13 +151,20 @@ Why this exists (do not re-litigate, just build against it):
 **Purpose**: Prove `MUSTER_API_KEY` never reaches the `npx` invocation line or the captured log.
 
 **Steps**:
-1. `command grep -n 'MUSTER_API_KEY' scripts/run.sh` — confirm it appears only in the guard block (T003's new line), never on the invocation line (`scripts/run.sh:20`, unchanged).
-2. Run the action once with a known-fake, distinctive `api-key` value (e.g. `FAKE_KEY_VALUE_$(date +%s)`), targeting `tests/fixtures/Soul.md` (cheap, static — no live model call needed for this check). After the run, `command grep -c "$FAKE_KEY_VALUE" "$OUT"` (the captured report) must be `0`.
+1. `command grep -n 'MUSTER_API_KEY' scripts/run.sh` — confirm it appears only in the guard block (T003's new line), never on the invocation line (`scripts/run.sh:20`, unchanged). This part needs no execution, only a static grep, so it has no dependency on WP02/WP04.
+2. **Fixed after post-tasks review**: do not reference `$OUT` — it is an internal variable local to `scripts/run.sh`'s own subshell (created by `mktemp` at line 14, deleted at line 57) and is not accessible to a caller invoking the script from outside; the `report-file` output that WOULD expose this path doesn't exist until WP02 lands, so this WP cannot depend on it either. Instead, capture the script's own stdout+stderr directly at the shell level, since `scripts/run.sh` already unconditionally echoes the captured muster output to its own stdout (the `cat "$OUT"` at line 24, between the two `-----` banner lines, is not redirected anywhere else): run it with a known-fake, distinctive `api-key` value (e.g. `FAKE_KEY_VALUE_$(date +%s)`) set as `MUSTER_API_KEY`, targeting `tests/fixtures/Soul.md` (cheap, static — no live model call needed for this check):
+   ```bash
+   FAKE_KEY_VALUE="FAKE_KEY_VALUE_$(date +%s)"
+   MUSTER_ENDPOINT=http://127.0.0.1:9 MUSTER_MODEL=fake MUSTER_API_KEY="$FAKE_KEY_VALUE" \
+     MA_COMMAND=check MA_ARGS=tests/fixtures/Soul.md GITHUB_OUTPUT="$(mktemp)" \
+     bash scripts/run.sh > /tmp/wp01-t004-capture.txt 2>&1
+   command grep -c "$FAKE_KEY_VALUE" /tmp/wp01-t004-capture.txt   # must be 0
+   ```
 3. **Do not use a bare `grep -rq` without the leading `!`/exit-code check** — per C-004's own verification command, the assertion is that grep finds nothing; a dropped negation is the inverted-assertion trap this programme has shipped before. Use `! command grep -rq "$FAKE_KEY_VALUE" . --exclude-dir=.git` and check its exit code is `0` (meaning zero matches).
 
-**Files**: no new files — this is a verification pass, folded into the T001 test job or a new dedicated job in `.github/workflows/test.yml`.
+**Files**: no new files — this is a self-contained verification pass, invoked directly via the shell, not folded into any CI job (`.github/workflows/test.yml` is WP04's owned file, not this WP's).
 
-**Validation**: Zero matches of the literal fake key value anywhere in the captured output or repo tree (excluding `.git`); zero matches of `MUSTER_API_KEY` on the argv-construction line specifically.
+**Validation**: Zero matches of the literal fake key value anywhere in the captured stdout+stderr or repo tree (excluding `.git`); zero matches of `MUSTER_API_KEY` on the argv-construction line specifically.
 
 ## Subtask T005: Document the new inputs in `README.md`
 
