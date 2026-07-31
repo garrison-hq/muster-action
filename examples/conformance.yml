@@ -104,7 +104,7 @@ jobs:
         run: |
           ready=""
           for _ in $(seq 1 30); do
-            curl -sf http://127.0.0.1:18337/chat/completions -X POST -d '{}' >/dev/null 2>&1 && { ready=1; break; }
+            curl -sf --max-time 5 http://127.0.0.1:18337/chat/completions -X POST -d '{}' >/dev/null 2>&1 && { ready=1; break; }
             sleep 1
           done
           if [ -z "$ready" ]; then
@@ -113,6 +113,17 @@ jobs:
             else
               echo "stub never became ready: no 200 from http://127.0.0.1:18337/chat/completions after 30s" >&2
             fi
+            exit 1
+          fi
+          # N-1 (post-close-out follow-up): something answered on 18337 within
+          # the retry budget, but that is not proof it was *this step's* stub --
+          # a foreign process already listening on the port (a port clash) would
+          # satisfy the curl probe above while this step's own stub dies with
+          # EADDRINUSE. Confirm the recorded pid is still alive before treating
+          # readiness as genuine; without this, a port clash silently passes the
+          # gate.
+          if [ -f stub.pid ] && ! kill -0 "$(cat stub.pid)" 2>/dev/null; then
+            echo "port 18337 answered but this step's stub is dead (port clash?)" >&2
             exit 1
           fi
 
