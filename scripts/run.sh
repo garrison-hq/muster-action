@@ -54,10 +54,9 @@ fi
 {
   echo "exit-code=${CODE}"
   echo "result=${RESULT}"
+  echo "report-file=${OUT}"
 } >>"$GITHUB_OUTPUT"
 echo "muster result: ${RESULT} (exit ${CODE})"
-
-rm -f "$OUT"
 
 # fail-on: 'error' (default) fails the job on a non-zero muster exit; 'never' reports only.
 if [ "${MA_FAIL_ON:-error}" = "error" ] && [ "$CODE" -ne 0 ]; then
