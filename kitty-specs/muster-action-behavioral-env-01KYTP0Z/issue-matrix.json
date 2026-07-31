@@ -1,0 +1,17 @@
+{
+  "rows": {
+    "#83": {
+      "evidence_ref": "plan.md Risk #4 / spec.md Post-Spec Review Corrections #9: PR #83 (garrison-hq/muster) merged to main, SonarCloud gate cleared, @garrison-hq/muster@1.2.0 published containing a46148b (M5); re-verified at implementation time 2026-07-31 via npm view/npm pack + git merge-base --is-ancestor",
+      "fr": null,
+      "nfr": null,
+      "repo": null,
+      "sc": null,
+      "scope": null,
+      "source_file": null,
+      "title": null,
+      "verdict": "verified-already-fixed",
+      "wp": "WP01"
+    }
+  },
+  "schema_version": 1
+}
