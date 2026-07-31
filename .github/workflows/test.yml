@@ -115,8 +115,19 @@ jobs:
         # are already on PATH here: the composite action's own setup-node step
         # (above) persisted its PATH change for the rest of this job.
         run: |
-          json_out="$(MUSTER_ENDPOINT=http://127.0.0.1:9 npx -y @garrison-hq/muster@1.2.0 skills run tests/fixtures/behavioral-single-case.yaml --json || true)"
+          set +e
+          json_out="$(MUSTER_ENDPOINT=http://127.0.0.1:9 npx -y @garrison-hq/muster@1.2.0 skills run tests/fixtures/behavioral-single-case.yaml --json)"
+          npx_rc=$?
+          set -e
           echo "$json_out" > /tmp/byom-dead-endpoint-diagnostic.json
+          # A registry hiccup (or any other npx failure that never reaches
+          # muster) writes only to stderr, leaving json_out empty/unparseable.
+          # `|| true` used to swallow that silently; now we fail loudly instead
+          # of falling through to checks that pass on empty input.
+          if ! jq -e '.results[0].id == "case-1"' /tmp/byom-dead-endpoint-diagnostic.json >/dev/null; then
+            echo "::error::diagnostic produced no parseable muster JSON (npx exit ${npx_rc}); cannot attribute the failure"
+            exit 1
+          fi
           # A fixture defect is caught before any network attempt and reports
           # `errored: true` (verified locally against a deliberately-broken
           # skillDir) -- reject that shape so this check cannot pass for the
@@ -196,7 +207,7 @@ jobs:
     needs: [byom-all-empty, byom-dead-endpoint, byom-missing-key, byom-malformed-manifest]
     runs-on: ubuntu-latest
     steps:
-      - name: assert none of a-d is passed/0, exactly (d) yields exit 2
+      - name: assert the exact expected outcome tuple (a=skipped/0, b=failed/1, c=failed/1, d=errored/2)
         run: |
           declare -A outcomes=(
             [a]="${{ needs.byom-all-empty.outputs.result }}:${{ needs.byom-all-empty.outputs.exit-code }}"
@@ -204,29 +215,27 @@ jobs:
             [c]="${{ needs.byom-missing-key.outputs.result }}:${{ needs.byom-missing-key.outputs.exit-code }}"
             [d]="${{ needs.byom-malformed-manifest.outputs.result }}:${{ needs.byom-malformed-manifest.outputs.exit-code }}"
           )
+          # Assert the exact tuple, not just "not passed/0" -- a generic check
+          # accepted (b)/(c) silently degrading from failed/1 to skipped/0,
+          # which is the exact regression this cross-check exists to catch.
+          declare -A expected=(
+            [a]="skipped:0"
+            [b]="failed:1"
+            [c]="failed:1"
+            [d]="errored:2"
+          )
           echo "case outcomes: ${outcomes[a]} ${outcomes[b]} ${outcomes[c]} ${outcomes[d]}"
-          exit2_count=0
+          mismatch=0
           for case_id in a b c d; do
-            entry="${outcomes[$case_id]}"
-            result="${entry%%:*}"
-            code="${entry##*:}"
-            if [ "$result" = "passed" ] && [ "$code" = "0" ]; then
-              echo "::error::case ${case_id} reported passed/0 -- none of (a)-(d) is a genuine pass"
-              exit 1
-            fi
-            if [ "$code" = "2" ]; then
-              exit2_count=$((exit2_count + 1))
-              if [ "$case_id" != "d" ]; then
-                echo "::error::case ${case_id} reported exit 2 -- only case (d) may"
-                exit 1
-              fi
+            if [ "${outcomes[$case_id]}" != "${expected[$case_id]}" ]; then
+              echo "::error::case ${case_id} reported ${outcomes[$case_id]}, expected ${expected[$case_id]}"
+              mismatch=1
             fi
           done
-          if [ "$exit2_count" -ne 1 ]; then
-            echo "::error::expected exactly one case ((d)) to report exit 2, got ${exit2_count}"
+          if [ "$mismatch" -ne 0 ]; then
             exit 1
           fi
-          echo "cross-check OK: none passed/0, exactly case (d) yielded exit 2"
+          echo "cross-check OK: exact tuple confirmed -- a=skipped/0 b=failed/1 c=failed/1 d=errored/2"
 
   # --- WP04 T028 [Gap closure]: WP02's exact report-file + anchored-marker
   # conjunction recipe, wired as a real job this repo's own CI executes.
