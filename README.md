@@ -54,6 +54,7 @@ Set `fail-on: never` to report the result through outputs without failing the st
 |--------|-------------|
 | `exit-code` | The raw muster exit code: `0`, `1`, or `2`. |
 | `result` | `passed`, `failed`, `errored`, or `skipped`. |
+| `report-file` | Absolute path to the full captured stdout+stderr report from this run. Survives until the step completes; a downstream step in the same job can read it (e.g. for anchored per-case marker assertions). |
 
 ## Bring your own model (BYOM) behavioral inputs
 
