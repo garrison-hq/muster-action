@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "mission_slug": "muster-action-behavioral-env-01KYTP0Z",
+  "mission_id": "01KYTP0Z8DT4TCD3NCSB4VTBYD",
+  "mission_branch": "kitty/mission-muster-action-behavioral-env-01KYTP0Z",
+  "target_branch": "kitty/mission-muster-action-behavioral-env",
+  "lanes": [
+    {
+      "lane_id": "lane-a",
+      "wp_ids": [
+        "WP01",
+        "WP02",
+        "WP03",
+        "WP04"
+      ],
+      "write_scope": [
+        ".github/workflows/test.yml",
+        "README.md",
+        "action.yml",
+        "docs/spec.md",
+        "examples/conformance.yml",
+        "scripts/run.sh",
+        "tests/fixtures/**"
+      ],
+      "predicted_surfaces": [
+        "api",
+        "artifact-rendering",
+        "legacy-cleanup",
+        "tests",
+        "tracker-integration"
+      ],
+      "depends_on_lanes": [],
+      "parallel_group": 0
+    }
+  ],
+  "computed_at": "2026-07-31T00:57:41.415442+00:00",
+  "computed_from": "dependency_graph+ownership",
+  "planning_artifact_wps": [],
+  "planning_commit_sha": "7d7cd7ec9d7f0638cb8a783b287b6e4bd4a6fa35",
+  "collapse_report": {
+    "events": [
+      {
+        "wp_a": "WP01",
+        "wp_b": "WP02",
+        "rule": "write_scope_overlap",
+        "evidence": "overlapping globs: 'action.yml' vs 'action.yml', 'scripts/run.sh' vs 'scripts/run.sh', 'README.md' vs 'README.md'; WP02 depends on WP01"
+      },
+      {
+        "wp_a": "WP01",
+        "wp_b": "WP03",
+        "rule": "write_scope_overlap",
+        "evidence": "overlapping globs: 'README.md' vs 'README.md'"
+      },
+      {
+        "wp_a": "WP02",
+        "wp_b": "WP04",
+        "rule": "write_scope_overlap",
+        "evidence": "overlapping globs: 'tests/fixtures/**' vs 'tests/fixtures/**'; WP04 depends on WP02"
+      }
+    ],
+    "total_merges": 3,
+    "independent_wps_collapsed": 0,
+    "by_rule": {
+      "write_scope_overlap": 3
+    }
+  }
+}

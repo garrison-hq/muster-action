@@ -1,0 +1,12 @@
+project:
+  uuid: 4919bb0d-c30d-4bc4-a038-1b0b335f87e8
+  slug: muster-action
+  node_id: 415a1490fb46
+  build_id: 233095cf-5a86-5f9b-92d7-153d372bad83
+vcs:
+  type: git
+agents:
+  available:
+  - claude
+  auto_commit: true
+  lint_on_edit: false

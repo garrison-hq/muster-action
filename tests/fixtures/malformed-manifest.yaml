@@ -1,0 +1,11 @@
+# WP04 T025 fixture: deliberately malformed YAML (not merely unusual-but-
+# valid) so `doSkillsRun`'s manifest read/parse try/catch is genuinely
+# exercised (C-002's reserved exit-2 path). Verified locally before commit:
+# `python3 -c "import yaml; yaml.safe_load(open('tests/fixtures/malformed-manifest.yaml'))"`
+# raises yaml.parser.ParserError, and
+# `npx @garrison-hq/muster@<any version> skills run tests/fixtures/malformed-manifest.yaml`
+# exits 2 with "skills manifest read/parse error: ...".
+cases:
+  - id: case-1
+    type: behavioral
+  skillDir: [this is not valid yaml

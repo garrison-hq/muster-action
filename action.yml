@@ -25,6 +25,18 @@ inputs:
     description: 'Bearer token for the A2A endpoint (pass a secret). Sets MUSTER_A2A_TOKEN. Never logged.'
     required: false
     default: ''
+  model-endpoint:
+    description: 'BYOM endpoint base URL for live behavioral cases (skills/sop/crosslayer/memory-utilization). Sets MUSTER_ENDPOINT. Leave empty to skip live behavioral cases.'
+    required: false
+    default: ''
+  model:
+    description: 'Model identifier passed through to MUSTER_MODEL.'
+    required: false
+    default: ''
+  api-key:
+    description: 'API key for the BYOM endpoint (pass a secret). Sets MUSTER_API_KEY. Never logged.'
+    required: false
+    default: ''
   health-url:
     description: 'Readiness probe URL (e.g. <endpoint>/.well-known/agent-card.json). Polled until it returns 200 before muster runs.'
     required: false
@@ -57,6 +69,9 @@ outputs:
   result:
     description: "'passed' | 'failed' | 'errored' | 'skipped'."
     value: ${{ steps.run.outputs.result }}
+  report-file:
+    description: 'Absolute path to the full captured stdout+stderr report from this run. Survives until the step completes; a downstream step in the same job can read it (e.g. for anchored per-case marker assertions).'
+    value: ${{ steps.run.outputs.report-file }}
 
 runs:
   using: 'composite'
@@ -87,3 +102,6 @@ runs:
         MA_FAIL_ON: ${{ inputs.fail-on }}
         MUSTER_A2A_ENDPOINT: ${{ inputs.endpoint }}
         MUSTER_A2A_TOKEN: ${{ inputs.token }}
+        MUSTER_ENDPOINT: ${{ inputs.model-endpoint }}
+        MUSTER_MODEL: ${{ inputs.model }}
+        MUSTER_API_KEY: ${{ inputs.api-key }}

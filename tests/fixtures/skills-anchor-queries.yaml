@@ -1,0 +1,22 @@
+id: skills-anchor-queries
+source: WP02 T010 fixture (muster-action-behavioral-env-01KYTP0Z) — not derived from any
+  upstream rubric; this is a synthetic, offline-gradable query set for the
+  report-file/anchored-marker mechanism, not a real trigger-taxonomy suite.
+shouldTrigger:
+  - "SHOULDTRIGGER what is the weather like in Lisbon right now"
+  - "SHOULDTRIGGER can you check the current weather for Tokyo"
+  - "SHOULDTRIGGER give me today's forecast for Berlin"
+  - "SHOULDTRIGGER is it raining in Seattle at the moment"
+  - "SHOULDTRIGGER what's the temperature in Cairo today"
+  - "SHOULDTRIGGER look up current conditions for Oslo"
+  - "SHOULDTRIGGER how hot is it in Phoenix right now"
+  - "SHOULDTRIGGER tell me the weather for Buenos Aires"
+nearMiss:
+  - "NEARMISS what is the capital of France"
+  - "NEARMISS can you help me write a haiku about the ocean"
+  - "NEARMISS what's a good recipe for banana bread"
+  - "NEARMISS explain how photosynthesis works"
+  - "NEARMISS recommend a book about ancient Rome"
+  - "NEARMISS how do I convert Celsius to Fahrenheit by hand"
+  - "NEARMISS what year did the Berlin Wall fall"
+  - "NEARMISS summarize the plot of Hamlet"

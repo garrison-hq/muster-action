@@ -1,0 +1,27 @@
+# WP02 T010 fixture: an ordinary behavioral case whose id (`case-1`) is a
+# literal substring of the control case's id (`case-1-control`) -- the
+# false-conjunction risk FR-004's anchored (grep -qxF), not substring, marker
+# matching exists to close. Both cases share the same skillDir/querySetPath;
+# only `isControl` differs (which flips the tool name/description
+# `runBehavioralSkillCase` sends, per src/cli/index.ts:1430-1444@a46148b).
+#
+# skillDir/querySetPath are resolved relative to this manifest's own
+# directory (`baseDir = dirname(absManifestPath)`, src/cli/index.ts:1543),
+# i.e. relative to tests/fixtures/ -- not repeating that prefix here.
+cases:
+  - id: case-1
+    type: behavioral
+    skillDir: skills-anchor
+    profile: base
+    querySetPath: skills-anchor-queries.yaml
+    runsPerQuery: 1
+    threshold: 0.5
+    isControl: false
+  - id: case-1-control
+    type: behavioral
+    skillDir: skills-anchor
+    profile: base
+    querySetPath: skills-anchor-queries.yaml
+    runsPerQuery: 1
+    threshold: 0.5
+    isControl: true
