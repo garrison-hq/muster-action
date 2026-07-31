@@ -5,13 +5,12 @@ on:
     branches: [main]
   pull_request:
 
-permissions:
-  contents: read
-
 jobs:
   static-pass:
     name: check a valid Soul.md (expect pass)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - id: muster
@@ -28,6 +27,8 @@ jobs:
   static-fail:
     name: check a broken Soul.md (expect failure, reported not thrown)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - id: muster
@@ -45,6 +46,8 @@ jobs:
   a2a-skip:
     name: a2a behavioral with no endpoint (expect skip, exit 0)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - id: muster
@@ -67,6 +70,8 @@ jobs:
   byom-all-empty:
     name: 'FR-005(a): all BYOM empty (expect skipped, exit 0)'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       result: ${{ steps.muster.outputs.result }}
       exit-code: ${{ steps.muster.outputs.exit-code }}
@@ -89,6 +94,8 @@ jobs:
   byom-dead-endpoint:
     name: 'FR-005(b): dead endpoint (mandated negative-path run, expect failed, exit 1)'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       result: ${{ steps.muster.outputs.result }}
       exit-code: ${{ steps.muster.outputs.exit-code }}
@@ -116,7 +123,7 @@ jobs:
         # (above) persisted its PATH change for the rest of this job.
         run: |
           set +e
-          json_out="$(MUSTER_ENDPOINT=http://127.0.0.1:9 npx -y @garrison-hq/muster@1.2.0 skills run tests/fixtures/behavioral-single-case.yaml --json)"
+          json_out="$(MUSTER_ENDPOINT=http://127.0.0.1:9 npx -y --ignore-scripts @garrison-hq/muster@1.2.0 skills run tests/fixtures/behavioral-single-case.yaml --json)"
           npx_rc=$?
           set -e
           echo "$json_out" > /tmp/byom-dead-endpoint-diagnostic.json
@@ -146,6 +153,8 @@ jobs:
   byom-missing-key:
     name: 'FR-005(c): missing key, endpoint set (expect failed, exit 1)'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       result: ${{ steps.muster.outputs.result }}
       exit-code: ${{ steps.muster.outputs.exit-code }}
@@ -176,6 +185,8 @@ jobs:
   byom-malformed-manifest:
     name: 'FR-005(d): malformed manifest (expect errored, exit 2)'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       result: ${{ steps.muster.outputs.result }}
       exit-code: ${{ steps.muster.outputs.exit-code }}
@@ -206,6 +217,8 @@ jobs:
     name: 'FR-005/SC-003: no silent-green collapse, only (d) yields exit 2 (T026)'
     needs: [byom-all-empty, byom-dead-endpoint, byom-missing-key, byom-malformed-manifest]
     runs-on: ubuntu-latest
+    # No checkout step here (only reads sibling-job outputs) -- no repo access needed.
+    permissions: {}
     steps:
       - name: assert the exact expected outcome tuple (a=skipped/0, b=failed/1, c=failed/1, d=errored/2)
         run: |
@@ -253,6 +266,8 @@ jobs:
   skills-conjunction-regression:
     name: 'FR-004/User Story 3: report-file conjunction regression (T028)'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     env:
       STUB_PORT: '18337'
     steps:

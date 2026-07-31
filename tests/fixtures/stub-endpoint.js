@@ -77,7 +77,7 @@ const server = http.createServer((req, res) => {
       const userMessage = (parsed.messages || []).find((m) => m.role === "user");
       const content = userMessage ? String(userMessage.content) : "";
       const firstTool = (parsed.tools || [])[0];
-      const requestedToolName = firstTool && firstTool.function ? firstTool.function.name : "";
+      const requestedToolName = firstTool?.function ? firstTool.function.name : "";
 
       let payload;
       if (requestedToolName === "rigged-impossible-control") {

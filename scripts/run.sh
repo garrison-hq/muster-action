@@ -8,9 +8,9 @@ set -uo pipefail
 # path triggers (an empty string is not "absent").
 [ -z "${MUSTER_A2A_ENDPOINT:-}" ] && unset MUSTER_A2A_ENDPOINT
 [ -z "${MUSTER_A2A_TOKEN:-}" ] && unset MUSTER_A2A_TOKEN
-[ -z "${MUSTER_ENDPOINT:-}" ] && unset MUSTER_ENDPOINT
-[ -z "${MUSTER_MODEL:-}" ] && unset MUSTER_MODEL
-[ -z "${MUSTER_API_KEY:-}" ] && unset MUSTER_API_KEY
+[[ -z "${MUSTER_ENDPOINT:-}" ]] && unset MUSTER_ENDPOINT
+[[ -z "${MUSTER_MODEL:-}" ]] && unset MUSTER_MODEL
+[[ -z "${MUSTER_API_KEY:-}" ]] && unset MUSTER_API_KEY
 
 VERSION="${MA_VERSION:-latest}"
 PKG="@garrison-hq/muster@${VERSION}"
@@ -19,8 +19,12 @@ OUT="$(mktemp)"
 # Run the human-readable report (no --json) so the Actions log is readable and the
 # failure annotation has real content. Capture stdout+stderr together: muster writes
 # success reports to stdout and error reports to stderr, and we want either.
+# --ignore-scripts: muster ships a prebuilt dist/ and has no prepare/postinstall
+# hook (verified against 1.2.1), so this is a real supply-chain hardening, not a
+# functional change -- it blocks lifecycle scripts npx would otherwise run on
+# install for muster or any of its transitive dependencies.
 # shellcheck disable=SC2086  # MA_COMMAND/MA_ARGS are intentionally word-split into argv.
-npx -y "$PKG" ${MA_COMMAND} ${MA_ARGS} >"$OUT" 2>&1
+npx -y --ignore-scripts "$PKG" ${MA_COMMAND} ${MA_ARGS} >"$OUT" 2>&1
 CODE=$?
 
 echo "----- muster ${MA_COMMAND} ${MA_ARGS} (exit ${CODE}) -----"
