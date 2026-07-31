@@ -69,6 +69,9 @@ outputs:
   result:
     description: "'passed' | 'failed' | 'errored' | 'skipped'."
     value: ${{ steps.run.outputs.result }}
+  report-file:
+    description: 'Absolute path to the full captured stdout+stderr report from this run. Survives until the step completes; a downstream step in the same job can read it (e.g. for anchored per-case marker assertions).'
+    value: ${{ steps.run.outputs.report-file }}
 
 runs:
   using: 'composite'
