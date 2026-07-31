@@ -79,13 +79,14 @@ Key source fact this WP's marker format depends on: `formatSkillsResultHuman` (`
    OUT_MARKER="$(mktemp)"; rm -f "$OUT_MARKER"   # sentinel, not used by the script itself
    GITHUB_OUTPUT="$(mktemp)"
    MA_COMMAND=check MA_ARGS=tests/fixtures/Soul.md bash scripts/run.sh
-   command grep -c '^report-file=' "$GITHUB_OUTPUT"   # must be 0 today
+   command grep -qxE '^exit-code=[0-9]+$' "$GITHUB_OUTPUT" && ! command grep -q '^report-file=' "$GITHUB_OUTPUT"
    ```
+   **F-4 fix (post-review)**: the prompt's original check (`command grep -c '^report-file=' "$GITHUB_OUTPUT"` — must print `0`) is vacuous: an empty `$GITHUB_OUTPUT` — e.g. because the script crashed before writing anything — also greps `0` matches, so a crashed run and a genuine pre-feature run are indistinguishable. Require `exit-code=` present (proves the script actually ran to completion and wrote its output block) **and** `report-file=` absent, not just the absence check alone.
 2. Commit this failing recipe (and its observed output) as its own commit, before any `action.yml`/`scripts/run.sh` change.
 
 **Files**: none required beyond what's already in `owned_files`.
 
-**Validation**: Re-running the recipe at the RED commit reproduces `report-file` being absent from `$GITHUB_OUTPUT` — not for an unrelated reason (e.g. the manifest fixture itself being broken).
+**Validation**: Re-running the recipe at the RED commit reproduces `report-file` being absent from `$GITHUB_OUTPUT` — not for an unrelated reason (e.g. the manifest fixture itself being broken, or the script crashing before it wrote `exit-code=` at all).
 
 ## Subtask T008: Add the `report-file` output to `action.yml`
 
@@ -101,7 +102,11 @@ Key source fact this WP's marker format depends on: `formatSkillsResultHuman` (`
 
 **Files**: `action.yml` (+4-5 lines).
 
-**Validation**: `command grep -n 'report-file' action.yml` shows the new output declaration.
+**Validation**: scope the check to the `outputs:` block and require an actual `value:` binding, not a bare name match:
+```bash
+awk '/^outputs:/{f=1} /^runs:/{f=0} f' action.yml | command grep -A2 -n '^  report-file:' | command grep -q 'value:'
+```
+**F-3 fix (post-review)**: the prompt's original check (`command grep -n 'report-file' action.yml`) is vacuous — it matches any mention of the string anywhere in the file, including an `inputs:` entry named `report-file` or a `# TODO: add report-file output` comment, neither of which declares the real output. The scoped form above only passes when `report-file:` appears inside `outputs:` with a `value:` binding within the next two lines.
 
 ## Subtask T009: Retain the report file and emit its path in `scripts/run.sh`
 
