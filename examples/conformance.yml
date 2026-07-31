@@ -8,6 +8,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -49,3 +52,107 @@ jobs:
           token: ${{ secrets.MUSTER_A2A_TOKEN }}
           health-url: http://localhost:8080/.well-known/agent-card.json
           health-timeout: '90'
+
+  # Skills-only behavioral check (User Story 3): proves a discrimination
+  # control still genuinely fires, using the report-file + anchored-marker
+  # conjunction (WP02) instead of a bare `result == 'failed'` assertion
+  # (which a dead endpoint alone can also satisfy -- muster#76). Runs on
+  # schedule/workflow_dispatch only, never on pull_request -- fork-PR-safe
+  # by construction (NFR-001/NFR-002: this file uses no fork-exposing
+  # trigger). This job is distinct from `behavioral:` above (the A2A
+  # example) -- the control-inversion conjunction pattern below applies
+  # only to skills-adapter `isControl` cases (C-005) and must never be
+  # applied to an a2a `control:` case; muster's own `applyControlInversion`
+  # (src/adapters/a2a/index.ts:356-371@a46148b) already flips a correctly
+  # firing a2a control's `passed` to `true` internally, so this job and the
+  # `behavioral:`/`a2a-skip` jobs are intentionally separate and unwrapped.
+  #
+  # This example demonstrates the mechanism using WP02's own control-anchor
+  # fixture (tests/fixtures/skills-control-anchor.yaml) and a local stub
+  # model endpoint (tests/fixtures/stub-endpoint.js) it boots itself, purely
+  # for a self-contained, copyable demonstration. A real consumer replaces
+  # both with their own skills manifest and deployed model endpoint.
+  skills-behavioral:
+    name: skills-behavioral (schedule/dispatch, control-inversion conjunction)
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # Demonstration-only: boot the local stub this example's own fixture is
+      # graded against. A real consumer's model-endpoint is already running
+      # and does not need this step. Backgrounding a command always exits 0
+      # regardless of whether the backgrounded process itself booted, so the
+      # PID is captured here to let the readiness step below give a specific
+      # diagnostic if the stub crashed on startup (e.g. the fixture is
+      # missing) instead of only reporting a generic timeout.
+      - name: Start stub model endpoint
+        if: ${{ secrets.MODEL_API_KEY != '' }}
+        run: |
+          node tests/fixtures/stub-endpoint.js &
+          echo $! > stub.pid
+
+      # F-5 (review follow-up): wait for the stub's own readiness line rather
+      # than racing it -- backgrounding with no gate is flaky by construction.
+      # B-2 (review follow-up): the loop below used to exit 0 unconditionally
+      # once the retries were exhausted, so a stub that never came up (a
+      # missing fixture, a crash, a port clash) was silently misattributed to
+      # the conformance check that runs afterward instead of to this readiness
+      # gate. Fail loudly here instead.
+      - name: Wait for stub readiness
+        if: ${{ secrets.MODEL_API_KEY != '' }}
+        run: |
+          ready=""
+          for _ in $(seq 1 30); do
+            curl -sf --max-time 5 http://127.0.0.1:18337/chat/completions -X POST -d '{}' >/dev/null 2>&1 && { ready=1; break; }
+            sleep 1
+          done
+          if [ -z "$ready" ]; then
+            if [ -f stub.pid ] && ! kill -0 "$(cat stub.pid)" 2>/dev/null; then
+              echo "stub never became ready: the stub process (pid $(cat stub.pid)) is no longer running -- check the 'Start stub model endpoint' step's log for a crash" >&2
+            else
+              echo "stub never became ready: no 200 from http://127.0.0.1:18337/chat/completions after 30s" >&2
+            fi
+            exit 1
+          fi
+          # N-1 (post-close-out follow-up): something answered on 18337 within
+          # the retry budget, but that is not proof it was *this step's* stub --
+          # a foreign process already listening on the port (a port clash) would
+          # satisfy the curl probe above while this step's own stub dies with
+          # EADDRINUSE. Confirm the recorded pid is still alive before treating
+          # readiness as genuine; without this, a port clash silently passes the
+          # gate.
+          if [ -f stub.pid ] && ! kill -0 "$(cat stub.pid)" 2>/dev/null; then
+            echo "port 18337 answered but this step's stub is dead (port clash?)" >&2
+            exit 1
+          fi
+
+      - name: Run muster (skills, control-inversion fixture)
+        id: muster
+        if: ${{ secrets.MODEL_API_KEY != '' }}
+        uses: garrison-hq/muster-action@v1
+        with:
+          command: skills run
+          args: tests/fixtures/skills-control-anchor.yaml
+          model-endpoint: http://127.0.0.1:18337
+          model: fake
+          api-key: ${{ secrets.MODEL_API_KEY }}
+          version: '1.2.0'
+          # pinned to the first release containing M5 (a46148b) -- see
+          # plan.md "Spec Corrections Found During Planning #2a"
+          fail-on: never
+
+      # Non-vacuous discrimination-control assertion (User Story 3, C-005 --
+      # skills isControl only, never an a2a control: manifest): asserts BOTH
+      # the ordinary case's marker is [PASS] AND the control case's marker is
+      # [FAIL]. A dead endpoint cannot satisfy this -- the ordinary case would
+      # also read [FAIL], breaking the conjunction (this is what closes
+      # muster#76's gap at the CI-YAML layer). Anchored (-x) AND fixed-string
+      # (-F): [PASS]/[FAIL] are literal brackets, not a BRE bracket
+      # expression -- `grep -qx` without `-F` does not match the real line.
+      - name: Assert control-inversion conjunction (skills isControl only, C-005)
+        if: ${{ secrets.MODEL_API_KEY != '' }}
+        run: |
+          report_file="${{ steps.muster.outputs.report-file }}"
+          command grep -qxF '  [PASS] case-1' "$report_file" \
+            && command grep -qxF '  [FAIL] case-1-control' "$report_file"

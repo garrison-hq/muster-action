@@ -58,3 +58,250 @@ jobs:
           echo "result=${{ steps.muster.outputs.result }} exit=${{ steps.muster.outputs.exit-code }}"
           test "${{ steps.muster.outputs.exit-code }}" = "0"
           test "${{ steps.muster.outputs.result }}" = "skipped"
+
+  # --- WP04 (FR-005): BYOM-triple exit-path matrix, T021-T027 ---
+  # Shared fixture: tests/fixtures/behavioral-single-case.yaml (T021 step 3),
+  # reusing WP02's already schema-verified tests/fixtures/skills-anchor/ +
+  # tests/fixtures/skills-anchor-queries.yaml read-only (F-7).
+
+  byom-all-empty:
+    name: 'FR-005(a): all BYOM empty (expect skipped, exit 0)'
+    runs-on: ubuntu-latest
+    outputs:
+      result: ${{ steps.muster.outputs.result }}
+      exit-code: ${{ steps.muster.outputs.exit-code }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - id: muster
+        uses: ./
+        with:
+          command: skills run
+          args: tests/fixtures/behavioral-single-case.yaml
+          version: '1.2.0'
+          # model-endpoint/model/api-key all left at default (empty)
+          fail-on: never
+      - name: assert skipped, exit 0
+        run: |
+          echo "result=${{ steps.muster.outputs.result }} exit=${{ steps.muster.outputs.exit-code }}"
+          test "${{ steps.muster.outputs.result }}" = "skipped"
+          test "${{ steps.muster.outputs.exit-code }}" = "0"
+
+  byom-dead-endpoint:
+    name: 'FR-005(b): dead endpoint (mandated negative-path run, expect failed, exit 1)'
+    runs-on: ubuntu-latest
+    outputs:
+      result: ${{ steps.muster.outputs.result }}
+      exit-code: ${{ steps.muster.outputs.exit-code }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - id: muster
+        uses: ./
+        with:
+          command: skills run
+          args: tests/fixtures/behavioral-single-case.yaml
+          model-endpoint: http://127.0.0.1:9 # guaranteed connection-refused
+          version: '1.2.0'
+          fail-on: never
+      - name: assert failed, exit 1
+        run: |
+          echo "result=${{ steps.muster.outputs.result }} exit=${{ steps.muster.outputs.exit-code }}"
+          test "${{ steps.muster.outputs.result }}" = "failed"
+          test "${{ steps.muster.outputs.exit-code }}" = "1"
+      - name: assert the failure is genuinely network-caused, not a fixture defect
+        # `runBehavioralSkillCase` reads skillDir/querySetPath BEFORE any network
+        # call: a broken fixture (e.g. a bad skillDir) reports the exact same
+        # failed/1, "[FAIL] case-1" shape as a genuine dead-endpoint failure --
+        # verified locally, both produce identical plain-text output. Node/npm
+        # are already on PATH here: the composite action's own setup-node step
+        # (above) persisted its PATH change for the rest of this job.
+        run: |
+          set +e
+          json_out="$(MUSTER_ENDPOINT=http://127.0.0.1:9 npx -y @garrison-hq/muster@1.2.0 skills run tests/fixtures/behavioral-single-case.yaml --json)"
+          npx_rc=$?
+          set -e
+          echo "$json_out" > /tmp/byom-dead-endpoint-diagnostic.json
+          # A registry hiccup (or any other npx failure that never reaches
+          # muster) writes only to stderr, leaving json_out empty/unparseable.
+          # `|| true` used to swallow that silently; now we fail loudly instead
+          # of falling through to checks that pass on empty input.
+          if ! jq -e '.results[0].id == "case-1"' /tmp/byom-dead-endpoint-diagnostic.json >/dev/null; then
+            echo "::error::diagnostic produced no parseable muster JSON (npx exit ${npx_rc}); cannot attribute the failure"
+            exit 1
+          fi
+          # A fixture defect is caught before any network attempt and reports
+          # `errored: true` (verified locally against a deliberately-broken
+          # skillDir) -- reject that shape so this check cannot pass for the
+          # wrong reason.
+          if jq -e '.results[0].errored == true' /tmp/byom-dead-endpoint-diagnostic.json >/dev/null; then
+            echo "::error::case-1 errored before any network attempt (fixture defect), not a dead-endpoint failure"
+            exit 1
+          fi
+          errored_runs="$(jq '[.results[0].shouldTriggerAxis.queryBreakdown[]?.runsErrored] | add // 0' /tmp/byom-dead-endpoint-diagnostic.json)"
+          if [ "$errored_runs" -lt 1 ]; then
+            echo "::error::expected at least one run to error against the dead endpoint, got ${errored_runs}"
+            exit 1
+          fi
+          echo "confirmed: failure is network-caused (errored_runs=${errored_runs})"
+
+  byom-missing-key:
+    name: 'FR-005(c): missing key, endpoint set (expect failed, exit 1)'
+    runs-on: ubuntu-latest
+    outputs:
+      result: ${{ steps.muster.outputs.result }}
+      exit-code: ${{ steps.muster.outputs.exit-code }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: assert ambient OPENAI_API_KEY is absent
+        run: |
+          if [ -n "${OPENAI_API_KEY:-}" ]; then
+            echo "::error::OPENAI_API_KEY unexpectedly present in runner env; this case requires it absent"
+            exit 1
+          fi
+          echo "confirmed: OPENAI_API_KEY absent"
+      - id: muster
+        uses: ./
+        with:
+          command: skills run
+          args: tests/fixtures/behavioral-single-case.yaml
+          model-endpoint: http://127.0.0.1:9 # real-looking, not necessarily reachable
+          api-key: ''
+          version: '1.2.0'
+          fail-on: never
+      - name: assert failed, exit 1 (not 2 -- skip decision keys on endpoint, not key)
+        run: |
+          echo "result=${{ steps.muster.outputs.result }} exit=${{ steps.muster.outputs.exit-code }}"
+          test "${{ steps.muster.outputs.result }}" = "failed"
+          test "${{ steps.muster.outputs.exit-code }}" = "1"
+
+  byom-malformed-manifest:
+    name: 'FR-005(d): malformed manifest (expect errored, exit 2)'
+    runs-on: ubuntu-latest
+    outputs:
+      result: ${{ steps.muster.outputs.result }}
+      exit-code: ${{ steps.muster.outputs.exit-code }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - id: muster
+        uses: ./
+        with:
+          command: skills run
+          args: tests/fixtures/malformed-manifest.yaml
+          model-endpoint: http://127.0.0.1:9 # irrelevant -- failure is at manifest-read time
+          # no version pin: manifest read/parse failure is not M5-specific (Context note)
+          fail-on: never
+      - name: assert errored, exit 2, and that it is a genuine parse failure (not a missing file)
+        run: |
+          echo "result=${{ steps.muster.outputs.result }} exit=${{ steps.muster.outputs.exit-code }}"
+          test "${{ steps.muster.outputs.result }}" = "errored"
+          test "${{ steps.muster.outputs.exit-code }}" = "2"
+          # A missing fixture ALSO reports errored/2 (ENOENT) -- that would be this
+          # case passing for the wrong reason. Require the report show a genuine
+          # parse failure, not a not-found error.
+          if command grep -q "ENOENT" "${{ steps.muster.outputs.report-file }}"; then
+            echo "::error::exit 2 came from a missing file, not a malformed-YAML parse failure"
+            exit 1
+          fi
+
+  byom-cross-check:
+    name: 'FR-005/SC-003: no silent-green collapse, only (d) yields exit 2 (T026)'
+    needs: [byom-all-empty, byom-dead-endpoint, byom-missing-key, byom-malformed-manifest]
+    runs-on: ubuntu-latest
+    steps:
+      - name: assert the exact expected outcome tuple (a=skipped/0, b=failed/1, c=failed/1, d=errored/2)
+        run: |
+          declare -A outcomes=(
+            [a]="${{ needs.byom-all-empty.outputs.result }}:${{ needs.byom-all-empty.outputs.exit-code }}"
+            [b]="${{ needs.byom-dead-endpoint.outputs.result }}:${{ needs.byom-dead-endpoint.outputs.exit-code }}"
+            [c]="${{ needs.byom-missing-key.outputs.result }}:${{ needs.byom-missing-key.outputs.exit-code }}"
+            [d]="${{ needs.byom-malformed-manifest.outputs.result }}:${{ needs.byom-malformed-manifest.outputs.exit-code }}"
+          )
+          # Assert the exact tuple, not just "not passed/0" -- a generic check
+          # accepted (b)/(c) silently degrading from failed/1 to skipped/0,
+          # which is the exact regression this cross-check exists to catch.
+          declare -A expected=(
+            [a]="skipped:0"
+            [b]="failed:1"
+            [c]="failed:1"
+            [d]="errored:2"
+          )
+          echo "case outcomes: ${outcomes[a]} ${outcomes[b]} ${outcomes[c]} ${outcomes[d]}"
+          mismatch=0
+          for case_id in a b c d; do
+            if [ "${outcomes[$case_id]}" != "${expected[$case_id]}" ]; then
+              echo "::error::case ${case_id} reported ${outcomes[$case_id]}, expected ${expected[$case_id]}"
+              mismatch=1
+            fi
+          done
+          if [ "$mismatch" -ne 0 ]; then
+            exit 1
+          fi
+          echo "cross-check OK: exact tuple confirmed -- a=skipped/0 b=failed/1 c=failed/1 d=errored/2"
+
+  # --- WP04 T028 [Gap closure]: WP02's exact report-file + anchored-marker
+  # conjunction recipe, wired as a real job this repo's own CI executes.
+  # Reuses WP02's fixture read-only (tests/fixtures/skills-control-anchor.yaml,
+  # tests/fixtures/skills-anchor/, tests/fixtures/stub-endpoint.js) -- no new
+  # fixture files added for this job (F-7).
+  #
+  # Both directions of this job were verified with a real, genuine execution
+  # of this exact workflow file (act v0.2.89, catthehacker/ubuntu:act-latest,
+  # 2026-07-31) before this evidence note was committed: the healthy-endpoint
+  # conjunction step and the dead-endpoint falsification step both ran and
+  # both asserted correctly -- see this commit's message for the full log
+  # excerpt (job outcome, per-step results, both PASS/FAIL marker states).
+
+  skills-conjunction-regression:
+    name: 'FR-004/User Story 3: report-file conjunction regression (T028)'
+    runs-on: ubuntu-latest
+    env:
+      STUB_PORT: '18337'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Set up Node 22
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+      - name: Start stub model endpoint
+        run: node tests/fixtures/stub-endpoint.js &
+      - name: Wait for stub readiness (F-5 -- poll, do not race the background start)
+        run: |
+          for _ in $(seq 1 30); do
+            if curl -sf "http://127.0.0.1:${STUB_PORT}/chat/completions" -X POST -d '{}' >/dev/null 2>&1; then
+              echo "stub ready on port ${STUB_PORT}"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::stub-endpoint.js did not become ready on port ${STUB_PORT} within 30s"
+          exit 1
+      - name: Run muster (healthy endpoint, control-inversion fixture)
+        id: muster-healthy
+        uses: ./
+        with:
+          command: skills run
+          args: tests/fixtures/skills-control-anchor.yaml
+          model-endpoint: http://127.0.0.1:18337
+          model: fake
+          api-key: fake-value
+          version: '1.2.0'
+          fail-on: never
+      - name: Assert healthy conjunction (ordinary PASS, control FAIL)
+        run: |
+          report_file="${{ steps.muster-healthy.outputs.report-file }}"
+          command grep -qxF '  [PASS] case-1' "$report_file" \
+            && command grep -qxF '  [FAIL] case-1-control' "$report_file"
+      - name: Run muster (dead-endpoint falsification, same fixture)
+        id: muster-dead
+        uses: ./
+        with:
+          command: skills run
+          args: tests/fixtures/skills-control-anchor.yaml
+          model-endpoint: http://127.0.0.1:19999 # distinct, unbound port -- avoid matrix-leg collisions
+          model: fake
+          api-key: fake-value
+          version: '1.2.0'
+          fail-on: never
+      - name: Assert falsification (dead endpoint flips case-1's own marker to FAIL)
+        run: |
+          report_file="${{ steps.muster-dead.outputs.report-file }}"
+          command grep -qxF '  [FAIL] case-1' "$report_file"
