@@ -49,3 +49,17 @@ jobs:
           token: ${{ secrets.MUSTER_A2A_TOKEN }}
           health-url: http://localhost:8080/.well-known/agent-card.json
           health-timeout: '90'
+
+  # WP03 scaffold (T014, RED): this job's own conjunction-assertion step below
+  # reads steps.muster.outputs.report-file, but no step in this job declares
+  # `id: muster` yet -- T015 adds the muster-invocation step next. Until then,
+  # this reference resolves to an empty string in a real run, and the
+  # structural check below (no `id: muster` present) fails on purpose.
+  skills-behavioral:
+    name: skills-behavioral (schedule/dispatch, control-inversion conjunction)
+    steps:
+      - name: Assert control-inversion conjunction (skills isControl only, C-005)
+        run: |
+          report_file="${{ steps.muster.outputs.report-file }}"
+          command grep -qxF '  [PASS] case-1' "$report_file" \
+            && command grep -qxF '  [FAIL] case-1-control' "$report_file"
