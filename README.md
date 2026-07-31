@@ -38,6 +38,9 @@ Set `fail-on: never` to report the result through outputs without failing the st
 | `version` | no | `^1.1.0` | npm version or range of `@garrison-hq/muster` to run. |
 | `endpoint` | no | `''` | A2A endpoint base URL for live behavioral cases. Sets `MUSTER_A2A_ENDPOINT`. Empty skips live cases. |
 | `token` | no | `''` | Bearer token for the endpoint. Sets `MUSTER_A2A_TOKEN`. Pass a secret. Never logged. |
+| `model-endpoint` | no | `''` | BYOM endpoint base URL for live behavioral cases (`skills run`/`sop run`/`crosslayer run`/`memory-utilization run`). Sets `MUSTER_ENDPOINT`. Empty skips live behavioral cases. |
+| `model` | no | `''` | Model identifier for the BYOM endpoint. Sets `MUSTER_MODEL`. |
+| `api-key` | no | `''` | API key for the BYOM endpoint. Sets `MUSTER_API_KEY`. Pass a secret. Never logged. |
 | `health-url` | no | `''` | Readiness probe. The action polls it until it returns 200 before running muster. |
 | `health-timeout` | no | `60` | Seconds to wait for `health-url`. |
 | `annotations` | no | `true` | Emit an inline error annotation on failure. |
@@ -51,6 +54,33 @@ Set `fail-on: never` to report the result through outputs without failing the st
 |--------|-------------|
 | `exit-code` | The raw muster exit code: `0`, `1`, or `2`. |
 | `result` | `passed`, `failed`, `errored`, or `skipped`. |
+
+## Bring your own model (BYOM) behavioral inputs
+
+`skills run`, `sop run`, `crosslayer run`, and `memory-utilization run` read a separate triple of
+env vars than the A2A pair above: `MUSTER_ENDPOINT` / `MUSTER_MODEL` / `MUSTER_API_KEY`. Set them
+via the `model-endpoint` / `model` / `api-key` inputs:
+
+```yaml
+- uses: garrison-hq/muster-action@v1
+  with:
+    command: skills run
+    args: conformance/skills-behavioral.yaml
+    model-endpoint: https://api.example-inference-host.com/v1
+    model: gpt-4o-mini
+    api-key: ${{ secrets.MODEL_API_KEY }}
+```
+
+These mirror the A2A pair's empty-must-be-unset discipline: if any of the three resolves to an
+empty string (its default, or an unset `secrets.*` reference), the action unsets the corresponding
+env var entirely rather than passing it through as `""`. An empty string and an absent variable are
+not the same thing to muster's endpoint-resolution logic — only "absent" reliably triggers the skip
+path, so the guard unsets each of the three independently.
+
+Credentials always flow through `secrets:` → this action's `env:`-mapped inputs only. Never put
+`api-key` (or any credential) directly in `args`/`command`, and never instruct a consumer to create
+a repo-local `.env` file to hold it — this action reads no `.env` file, and none should be created
+for it.
 
 ## Grading a running agent over A2A
 
